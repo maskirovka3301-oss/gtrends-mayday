@@ -4,7 +4,7 @@
 
 ## Description
 
-Automated headless browser tool for systematic Google Trends screenshot collection across semantic gradients, specifically designed to test the algorithmic pruning hypothesis following the April 29, 2026 whistleblower disclosure to the Defense Intelligence Agency. Generates structured screenshot datasets compatible with GTRENDS-OCR for time-series extraction and statistical decomposition of search trend anomalies.
+Automated headless browser tool for systematic Google Trends screenshot collection across semantic gradients, specifically designed to test the algorithmic pruning hypothesis following the April 29, 2026 whistleblower disclosure to the Defense Intelligence Agency. Generates structured screenshot datasets compatible with [GTRENDS-OCR](https://github.com/maskirovka3301-oss/gtrends-ocr) for time-series extraction and statistical decomposition of search trend anomalies.
 
 **This project supports independent forensic research into platform-level query suppression mechanisms.**
 

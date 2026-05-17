@@ -329,4 +329,3 @@ This tool is provided for research, transparency, and accountability purposes. U
 **If you find this tool valuable for documenting platform manipulation, please give the repository a star.**
 
 *Preserving evidence is the first step toward accountability.*
-```

@@ -12,6 +12,8 @@ Automated headless browser tool for systematic Google Trends screenshot collecti
 
 Following a whistleblower call to the Defense Intelligence Agency on April 29, 2026, alleging NATO involvement in "Havana syndrome" through a 5G-integrated directed-energy mechanism, platform-level pruning mechanisms appear to have been rapidly deployed on May 1, 2026—strategically implemented before the weekend and the start of the new month—to suppress search visibility for semantically proximate terms.
 
+![Chart](literature/chart.png)
+
 This tool enables systematic collection of search trend data to test the pruning hypothesis using linear compositional decomposition:
 
 $$T_{AB}(t) \approx \alpha T_A(t) + \beta T_B(t) + \epsilon(t)$$

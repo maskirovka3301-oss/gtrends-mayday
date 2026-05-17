@@ -305,9 +305,8 @@ Azulay, D. R. (2026). GTRENDS-MAYDAY: Algorithmic Pruning Detection
 & Forensic Screenshot Collection Tool. GitHub.
 https://github.com/maskirovka3301-oss/gtrends-mayday
 
-Azulay, D. R. (2026). GTRENDS-MAYDAY: Algorithmic Pruning Detection 
-& Forensic Screenshot Collection Tool. GitHub.
-https://github.com/maskirovka3301-oss/gtrends-mayday
+Azulay, D. R. (2026). GTRENDS-OCR: Google Trends Forensic Screenshot Organizer and Data Extraction Utility. GitHub.
+https://github.com/maskirovka3301-oss/gtrends-ocr
 ```
 
 ### License

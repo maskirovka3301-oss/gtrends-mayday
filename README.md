@@ -218,7 +218,7 @@ The tool's output supports detection of four independent anomaly signatures:
 
 The May 1 deployment timing exhibits three strategic characteristics:
 - **Weekend Buffer**: Friday deployment minimizes immediate public scrutiny
-- **Monthly Reset**: Implementation at month boundary aligns with Google Trends' normalization cycles
+- **Monthly Reset**: Implementation at month boundary aligns with Google Trends' normalization cycles, but the breadth and depth of the anomaly seen the 1st of May 2026 is exceptional.
 - **Propagation Window**: 24-hour lag to observable anomalies suggests batch-processing of query-weight updates
 
 ### Output Structure for Hierarchical Bayesian Analysis

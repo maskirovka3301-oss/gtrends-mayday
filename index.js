@@ -318,6 +318,7 @@ function parseCommandLineArgs() {
   let region = null;
   let category = 'all';
   let onlyKeepLast = false;
+  let explode = false;
   
   console.log('\n=== Command line arguments parsed ===');
   
@@ -372,6 +373,9 @@ function parseCommandLineArgs() {
     } else if (arg === '--only-keep-last') {
       onlyKeepLast = true;
       console.log(`  --only-keep-last: enabled`);
+    } else if (arg === '--explode') {
+      explode = true;
+      console.log(`  --explode: enabled (will decompose keywords into subsequences)`);
     } else if (arg === '--help' || arg === '-h') {
       console.log(`
 Usage: node index.js [options]
@@ -387,23 +391,35 @@ Options:
   --region <code>                 Country code for geo-targeting (default: worldwide)
   --category <code>               Category filter (default: all)
   --only-keep-last                Only keep the last successful screenshot per term
+  --explode                       Decompose keywords into all non-empty subsequences (order preserved)
+                                  When not specified, only the exact keyword strings are used
   --help, -h                      Show this help message
 
 Examples:
-  node index.js --output-dir ./my_screenshots --screenshots-per-term 100 --only-keep-last
-  node index.js --region US --date "Past 90 days" --output-dir ./us_data
-  node index.js --keyword-file mykeywords.json --output-dir ./hourly_snapshots --only-keep-last
+  # Exact keyword matching only (no decomposition)
+  node index.js --keyword-file mykeywords.json --output-dir ./exact_matches
+  
+  # Decompose keywords into subsequences (original behavior)
+  node index.js --keyword-file mykeywords.json --explode --output-dir ./decomposed
+  
+  # High-frequency sampling with exact keywords
+  node index.js --screenshots-per-term 100 --date "Past day" --only-keep-last --keyword-file mykeywords.json
+  
+  # Region-specific with decomposition
+  node index.js --region US --explode --date "Past 90 days" --output-dir ./us_decomposed
       `);
       process.exit(0);
     }
   }
   
   console.log(`\n  Final output directory: ${outputDir}`);
-  return { keywordsFile, outputDir, dateRange, screenshotsPerTerm, region, category, onlyKeepLast };
+  console.log(`  Explode mode: ${explode ? 'ON (decomposing keywords)' : 'OFF (exact keywords only)'}`);
+  return { keywordsFile, outputDir, dateRange, screenshotsPerTerm, region, category, onlyKeepLast, explode };
 }
 
 /**
  * Generate all non-empty subsequences (order preserved) from a phrase.
+ * Example: 'big brown cow' -> ['big', 'brown', 'cow', 'big brown', 'big cow', 'brown cow', 'big brown cow']
  */
 function generateAllSubsequences(phrase) {
   const words = phrase.trim().split(/\s+/);
@@ -420,6 +436,30 @@ function generateAllSubsequences(phrase) {
     subsequences.push(selected.join(' '));
   }
   return subsequences;
+}
+
+/**
+ * Generate search terms from compound keywords based on explode flag
+ * If explode is true, generates all non-empty subsequences
+ * If explode is false, uses only the exact keywords as-is
+ */
+function generateSearchTerms(compoundKeywords, explode) {
+  const allSearchTerms = new Set();
+  
+  if (explode) {
+    console.log('  Decomposing keywords into all subsequences...');
+    for (const keyword of compoundKeywords) {
+      const subsequences = generateAllSubsequences(keyword);
+      subsequences.forEach(term => allSearchTerms.add(term));
+    }
+  } else {
+    console.log('  Using exact keywords only (no decomposition)...');
+    for (const keyword of compoundKeywords) {
+      allSearchTerms.add(keyword);
+    }
+  }
+  
+  return allSearchTerms;
 }
 
 /**
@@ -533,6 +573,7 @@ async function extractTextFromImage(imagePath) {
 
 /**
  * Analyze screenshot using OCR and pattern matching
+ * Returns analysis type and whether the screenshot is valid (has chart data)
  */
 async function analyzeScreenshot(screenshotPath) {
   try {
@@ -561,28 +602,28 @@ async function analyzeScreenshot(screenshotPath) {
     
     if (hasRateLimit) {
       console.log(`  Pattern detected: rate_limited`);
-      return { type: 'rate_limited', blocked: true };
+      return { type: 'rate_limited', blocked: true, valid: false };
     } else if (hasCaptcha) {
       console.log(`  Pattern detected: captcha`);
-      return { type: 'captcha', blocked: true };
+      return { type: 'captcha', blocked: true, valid: false };
     } else if (hasNoData) {
-      console.log(`  Pattern detected: no_data`);
-      return { type: 'no_data', blocked: false };
+      console.log(`  Pattern detected: no_data (will be deleted)`);
+      return { type: 'no_data', blocked: false, valid: false };
     } else if (hasChart) {
-      console.log(`  Pattern detected: success`);
-      return { type: 'success', blocked: false };
+      console.log(`  Pattern detected: success (keeping screenshot)`);
+      return { type: 'success', blocked: false, valid: true };
     } else {
       if (text.includes('500') || text.includes('502') || text.includes('503') || text.includes('504')) {
-        console.log(`  Pattern detected: error`);
-        return { type: 'error', blocked: true };
+        console.log(`  Pattern detected: error (will be deleted)`);
+        return { type: 'error', blocked: true, valid: false };
       }
-      console.log(`  Pattern detected: unknown (defaulting to no_data)`);
-      return { type: 'no_data', blocked: false };
+      console.log(`  Pattern detected: unknown (defaulting to no_data, will be deleted)`);
+      return { type: 'no_data', blocked: false, valid: false };
     }
     
   } catch (error) {
     console.error(`  Screenshot analysis failed: ${error.message}`);
-    return { type: 'error', blocked: true };
+    return { type: 'error', blocked: true, valid: false };
   }
 }
 
@@ -653,7 +694,7 @@ async function initializeCleanSession(page) {
 }
 
 /**
- * Takes a screenshot and analyzes it
+ * Takes a screenshot, analyzes it, and deletes if invalid (no chart data)
  */
 async function screenshotAndAnalyze(page, term, screenshotNumber, totalScreenshotsForTerm, dateRange, region, category, outputDir, previousScreenshotPath = null) {
   const encodedTerm = encodeURIComponent(term);
@@ -699,11 +740,35 @@ async function screenshotAndAnalyze(page, term, screenshotNumber, totalScreensho
   
   const analysis = await analyzeScreenshot(filepath);
   
+  // If screenshot is not valid (no chart data, error, etc.), delete it
+  if (!analysis.valid) {
+    try {
+      await fs.unlink(filepath);
+      console.log(`  Deleted invalid screenshot (${analysis.type}): ${path.basename(filepath)}`);
+      return {
+        screenshotPath: null,
+        analysis: analysis,
+        statusCode: statusCode,
+        deleted: true
+      };
+    } catch (err) {
+      console.log(`  Warning: Could not delete invalid screenshot: ${err.message}`);
+      return {
+        screenshotPath: filepath,
+        analysis: analysis,
+        statusCode: statusCode,
+        deleted: false
+      };
+    }
+  }
+  
+  // Valid screenshot - rename with classification
   const finalFilename = `${safeTerm}${screenshotLabel}${regionLabel}${categoryLabel}_${timestampForFile}_${analysis.type}_${statusCode}.jpg`;
   const finalFilepath = path.join(outputDir, finalFilename);
   await fs.rename(filepath, finalFilepath);
   console.log(`  Renamed to: ${finalFilename}`);
   
+  // If we have a previous screenshot and it's a success, delete it (only-keep-last mode)
   if (previousScreenshotPath && analysis.type === 'success') {
     try {
       await fs.unlink(previousScreenshotPath);
@@ -716,7 +781,8 @@ async function screenshotAndAnalyze(page, term, screenshotNumber, totalScreensho
   return {
     screenshotPath: finalFilepath,
     analysis: analysis,
-    statusCode: statusCode
+    statusCode: statusCode,
+    deleted: false
   };
 }
 
@@ -738,13 +804,20 @@ async function pauseWithNotification(ms, reason) {
  * Main entry point
  */
 async function main() {
-  const { keywordsFile, outputDir, dateRange, screenshotsPerTerm, region, category, onlyKeepLast } = parseCommandLineArgs();
+  const { keywordsFile, outputDir, dateRange, screenshotsPerTerm, region, category, onlyKeepLast, explode } = parseCommandLineArgs();
   
   console.log('\n=== Google Trends Scraper with OCR Analysis ===\n');
   console.log(`Using keyword file: ${keywordsFile}`);
   console.log(`Using output directory: ${outputDir}`);
   console.log(`Using date range: ${dateRange}`);
   console.log(`Screenshots per term: ${screenshotsPerTerm}`);
+  console.log(`Invalid screenshot handling: Deleting all non-chart screenshots (Oops, errors, no_data, etc.)`);
+  
+  if (explode) {
+    console.log(`Keyword decomposition: ENABLED (generating all subsequences)`);
+  } else {
+    console.log(`Keyword decomposition: DISABLED (using exact keywords only)`);
+  }
   
   if (onlyKeepLast && screenshotsPerTerm > 1) {
     console.log(`Mode: Only keeping last successful screenshot per term (disk space optimized)`);
@@ -760,14 +833,17 @@ async function main() {
   const hasTesseract = await checkTesseract();
   if (!hasTesseract) {
     console.error('⚠️  Tesseract OCR is not installed!');
+    console.error('Please install tesseract:');
+    console.error('  macOS: brew install tesseract');
+    console.error('  Ubuntu: sudo apt-get install tesseract-ocr');
   } else {
     console.log('✓ Tesseract OCR found');
   }
   
   const compoundKeywords = await loadKeywords(keywordsFile);
   const userAgents = await loadUserAgents();
-  console.log(`Loaded ${compoundKeywords.length} compound keywords`);
-  console.log(`Loaded ${userAgents.length} user agents`);
+  console.log(`Loaded ${compoundKeywords.length} compound keywords from ${keywordsFile}`);
+  console.log(`Loaded ${userAgents.length} user agents from ${USER_AGENTS_FILE}`);
   
   // Create output directory
   try {
@@ -787,21 +863,16 @@ async function main() {
   
   await initializeCleanSession(page);
   
-  console.log('\n=== Generating all search terms ===');
-  const allSearchTerms = new Set();
+  console.log('\n=== Generating search terms ===');
+  const allSearchTerms = generateSearchTerms(compoundKeywords, explode);
   
-  for (const keyword of compoundKeywords) {
-    const subsequences = generateAllSubsequences(keyword);
-    subsequences.forEach(term => allSearchTerms.add(term));
-  }
-  
-  console.log(`  Generated ${allSearchTerms.size} total search terms`);
+  console.log(`  Generated ${allSearchTerms.size} total search terms from ${compoundKeywords.length} ${explode ? 'compound' : 'exact'} keyword(s)`);
   
   let searchTermsList = Array.from(allSearchTerms);
   console.log(`\n📊 ${searchTermsList.length} unique search terms total.`);
   
   searchTermsList = shuffleArray(searchTermsList);
-  console.log(`🔀 Randomized order.`);
+  console.log(`🔀 Randomized the order of ${searchTermsList.length} search terms.`);
   
   let requestsSinceLastRotation = 0;
   let requestsUntilNextRotation = randomInt(15, 30);
@@ -810,6 +881,8 @@ async function main() {
   console.log(`Initial user agent: ${currentUserAgent.substring(0, 60)}...`);
   
   let totalScreenshots = 0;
+  let totalValid = 0;
+  let totalDeleted = 0;
   let totalSuccess = 0;
   let totalNoData = 0;
   let totalRateLimited = 0;
@@ -817,7 +890,7 @@ async function main() {
   let totalError = 0;
   let consecutiveBlocks = 0;
   let processedCount = 0;
-  let totalDeleted = 0;
+  let totalPreviousDeleted = 0;
   
   console.log('\n=== Processing search terms ===\n');
   
@@ -847,22 +920,37 @@ async function main() {
       totalScreenshots++;
       requestsSinceLastRotation++;
       
-      if (result.analysis.type === 'success') {
-        totalSuccess++;
-        consecutiveBlocks = 0;
-        console.log(`  ✓ Success!`);
-        if (onlyKeepLast && screenshotsPerTerm > 1) {
-          if (lastSuccessfulPath && lastSuccessfulPath !== result.screenshotPath) {
-            totalDeleted++;
-          }
-          lastSuccessfulPath = result.screenshotPath;
+      if (result.deleted) {
+        // Screenshot was deleted because it was invalid
+        if (result.analysis.type === 'no_data') {
+          totalNoData++;
+        } else if (result.analysis.type === 'error') {
+          totalError++;
+        } else if (result.analysis.type === 'rate_limited') {
+          totalRateLimited++;
+        } else if (result.analysis.type === 'captcha') {
+          totalCaptcha++;
         }
-      } else if (result.analysis.type === 'no_data') {
-        totalNoData++;
-        consecutiveBlocks = 0;
-        console.log(`  ℹ No data available`);
-      } else if (result.analysis.type === 'captcha') {
-        totalCaptcha++;
+        totalDeleted++;
+        console.log(`  🗑️ Screenshot deleted (${result.analysis.type} - no chart data)`);
+      } else {
+        // Valid screenshot kept
+        totalValid++;
+        if (result.analysis.type === 'success') {
+          totalSuccess++;
+          consecutiveBlocks = 0;
+          console.log(`  ✓ Valid chart screenshot kept!`);
+          if (onlyKeepLast && screenshotsPerTerm > 1) {
+            if (lastSuccessfulPath && lastSuccessfulPath !== result.screenshotPath) {
+              totalPreviousDeleted++;
+            }
+            lastSuccessfulPath = result.screenshotPath;
+          }
+        }
+      }
+      
+      // Handle blocking conditions (still need to pause even if screenshots were deleted)
+      if (result.analysis.type === 'captcha') {
         consecutiveBlocks++;
         console.log(`  ⚠ CAPTCHA detected (block #${consecutiveBlocks})`);
         if (consecutiveBlocks >= 2) {
@@ -876,7 +964,6 @@ async function main() {
           consecutiveBlocks = 0;
         }
       } else if (result.analysis.type === 'rate_limited') {
-        totalRateLimited++;
         consecutiveBlocks++;
         console.log(`  ⚠ Rate limited (block #${consecutiveBlocks})`);
         if (consecutiveBlocks >= 2) {
@@ -889,10 +976,9 @@ async function main() {
           await reinitializeSession(page);
           consecutiveBlocks = 0;
         }
-      } else {
-        totalError++;
+      } else if (result.analysis.type === 'error') {
         consecutiveBlocks++;
-        console.log(`  ✗ Error (block #${consecutiveBlocks})`);
+        console.log(`  ⚠ Error detected (block #${consecutiveBlocks})`);
         if (consecutiveBlocks >= 2) {
           await clearAllStorage(page);
           await pauseWithNotification(BLOCK_PAUSE_MS, 'Two consecutive errors detected');
@@ -903,6 +989,10 @@ async function main() {
           await reinitializeSession(page);
           consecutiveBlocks = 0;
         }
+      } else if (result.analysis.type === 'no_data') {
+        consecutiveBlocks = 0;
+      } else if (result.analysis.type === 'success') {
+        consecutiveBlocks = 0;
       }
       
       if (screenshotIdx < screenshotsPerTerm) {
@@ -922,16 +1012,18 @@ async function main() {
   await browser.close();
   
   console.log(`\n========== SUMMARY ==========`);
-  console.log(`Total search terms: ${searchTermsList.length}`);
+  console.log(`Total unique search terms generated: ${searchTermsList.length}`);
+  console.log(`Total search terms processed: ${processedTerms.size}`);
   console.log(`Total screenshots taken: ${totalScreenshots}`);
-  console.log(`  - Successful: ${totalSuccess}`);
-  console.log(`  - No data: ${totalNoData}`);
-  console.log(`  - Rate limited: ${totalRateLimited}`);
-  console.log(`  - CAPTCHA: ${totalCaptcha}`);
-  console.log(`  - Errors: ${totalError}`);
+  console.log(`  - Valid screenshots kept (with chart): ${totalValid}`);
+  console.log(`  - Invalid screenshots deleted: ${totalDeleted}`);
+  console.log(`    * No data/Oops errors: ${totalNoData}`);
+  console.log(`    * Server errors: ${totalError}`);
+  console.log(`    * Rate limited: ${totalRateLimited}`);
+  console.log(`    * CAPTCHA: ${totalCaptcha}`);
   if (onlyKeepLast && screenshotsPerTerm > 1) {
-    console.log(`  - Deleted (only-keep-last): ${totalDeleted}`);
-    console.log(`  - Final screenshots: ${totalSuccess - totalDeleted}`);
+    console.log(`  - Previous screenshots deleted (only-keep-last): ${totalPreviousDeleted}`);
+    console.log(`  - Final screenshots remaining: ${totalValid - totalPreviousDeleted}`);
   }
   console.log(`==============================\n`);
 }

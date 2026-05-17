@@ -35,6 +35,7 @@ Beyond pruning detection, this tool has been extended into a **general-purpose, 
 - **Cron-Driven Continuous Recording**: Configure a crontab (or any scheduler) to run this tool at any interval—hourly, daily, weekly, or custom—with any parameter settings for continuous, long-term recording of Google Trends data
 - **Automated Recurring Collection**: Set and forget data collection that builds comprehensive historical archives without manual intervention
 - **Retrospective Reconstruction**: Build complete, high-resolution trend lines over months or years by stitching together thousands of screenshots taken at scheduled intervals
+- **Disk Space Optimization**: Use `--only-keep-last` to retain only the most recent screenshot per term during high-frequency sampling, dramatically reducing storage requirements
 
 ### Comparative Analysis Capabilities
 
@@ -83,9 +84,11 @@ The tool now supports **all major Google Trends URL parameters**:
 | Parameter | Options | Purpose |
 |-----------|---------|---------|
 | `--date` | 9 presets + custom range | Define temporal window (past hour to 5 years) |
-| `--region` | 247 country codes | Geo-target to specific countries |
+| `--region` | 247 country codes | Geo-target to specific countries (default: worldwide) |
 | `--category` | 7 categories | Filter by topic (Business, Health, Sci/Tech, etc.) |
 | `--screenshots-per-term` | 1-∞ | High-frequency sampling (e.g., 30 screenshots hourly) |
+| `--output-dir` | Custom path | Specify output directory for screenshots |
+| `--only-keep-last` | Flag | Keep only the last successful screenshot per term (disk space optimization) |
 
 ### Usage
 
@@ -93,16 +96,19 @@ The tool now supports **all major Google Trends URL parameters**:
 # Install dependencies
 npm install
 
-# Basic usage with default settings
+# Basic usage with default settings (worldwide data)
 npm start
 
 # General-purpose data collection examples
 
+# Capture worldwide data for past 90 days
+node index.js --date "Past 90 days"
+
 # Capture US data for past 90 days
 node index.js --region US --date "Past 90 days"
 
-# High-resolution hourly sampling (30 screenshots per term at 1-hour intervals)
-node index.js --screenshots-per-term 30 --date "Past hour"
+# High-resolution hourly sampling with disk space optimization
+node index.js --screenshots-per-term 30 --date "Past hour" --only-keep-last
 
 # Daily reconstruction for a specific category in Germany
 node index.js --region DE --category t --date "Past 7 days" --screenshots-per-term 7
@@ -110,11 +116,14 @@ node index.js --region DE --category t --date "Past 7 days" --screenshots-per-te
 # Monthly trend analysis for Japanese entertainment queries
 node index.js --region JP --category e --date "Past 12 months" --screenshots-per-term 12
 
-# Custom date range for specific event analysis
-node index.js --region GB --date "2024-01-01 2024-12-31" --screenshots-per-term 24
+# Custom output directory for organized storage
+node index.js --output-dir ./data/us_2024 --region US --date "Past 90 days"
 
 # Complete forensic configuration (all parameters)
-node index.js --keyword-file ./forensic-terms.json --region US --category b --date "Past 5 years" --screenshots-per-term 60
+node index.js --keyword-file ./forensic-terms.json --output-dir ./forensic_data --region US --category b --date "Past 5 years" --screenshots-per-term 60 --only-keep-last
+
+# Custom date range for specific event analysis
+node index.js --region GB --date "2024-01-01 2024-12-31" --screenshots-per-term 24 --output-dir ./uk_2024
 ```
 
 ### Continuous Recording with Cron (Example)
@@ -127,20 +136,20 @@ crontab -e
 
 # Example cron jobs for continuous Google Trends recording:
 
-# Run every hour to capture hourly trends (requires --screenshots-per-term 1)
-0 * * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./monitor.json --region US --date "Past hour" --screenshots-per-term 1 >> /var/log/gtrends.log 2>&1
+# Run every hour to capture hourly trends (keeping only the latest)
+0 * * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./monitor.json --date "Past hour" --screenshots-per-term 1 --only-keep-last --output-dir ./hourly_data >> /var/log/gtrends.log 2>&1
 
 # Run daily at midnight to capture daily data
-0 0 * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./daily-terms.json --region GB --date "Past day" --screenshots-per-term 1 >> /var/log/gtrends-daily.log 2>&1
+0 0 * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./daily-terms.json --region GB --date "Past day" --screenshots-per-term 1 --output-dir ./daily_data >> /var/log/gtrends-daily.log 2>&1
 
 # Run weekly on Sunday at 2 AM to capture weekly data
-0 2 * * 0 cd /path/to/gtrends-mayday && node index.js --keyword-file ./weekly-terms.json --region DE --category t --date "Past 7 days" --screenshots-per-term 1 >> /var/log/gtrends-weekly.log 2>&1
+0 2 * * 0 cd /path/to/gtrends-mayday && node index.js --keyword-file ./weekly-terms.json --region DE --category t --date "Past 7 days" --screenshots-per-term 1 --output-dir ./weekly_data >> /var/log/gtrends-weekly.log 2>&1
 
 # Run monthly on the 1st at 3 AM to capture monthly data
-0 3 1 * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./monthly-terms.json --region JP --category e --date "Past 30 days" --screenshots-per-term 1 >> /var/log/gtrends-monthly.log 2>&1
+0 3 1 * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./monthly-terms.json --region JP --category e --date "Past 30 days" --screenshots-per-term 1 --output-dir ./monthly_data >> /var/log/gtrends-monthly.log 2>&1
 
-# High-frequency monitoring (every 6 hours)
-0 */6 * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./trending.json --region US --date "Past 4 hours" --screenshots-per-term 1 >> /var/log/gtrends-6hour.log 2>&1
+# High-frequency monitoring (every 6 hours) with disk space optimization
+0 */6 * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./trending.json --region US --date "Past 4 hours" --screenshots-per-term 1 --only-keep-last --output-dir ./high_freq_data >> /var/log/gtrends-6hour.log 2>&1
 ```
 
 **With cron automation, you can:**
@@ -148,12 +157,15 @@ crontab -e
 - Detect exactly when pruning or manipulation occurs (down to the hour)
 - Compare trends across multiple regions and categories simultaneously
 - Create alerting systems when anomalies are detected in recurring collections
+- Organize data by date/region/category using custom output directories
+- Minimize disk usage with `--only-keep-last` for high-frequency sampling
 
 ### Available Command Line Options
 
 ```
 Options:
   --keyword-file <path>           Path to JSON file containing keywords array (default: ./keywords.json)
+  --output-dir <path>             Output directory for screenshots (default: ./output)
   --date <range>                  Date range for Google Trends (default: "Past 30 days")
                                   Valid options:
                                     - "Past hour" (now 1-H)
@@ -168,7 +180,7 @@ Options:
                                   Or custom range: "YYYY-MM-DD YYYY-MM-DD"
   --screenshots-per-term <number> Number of screenshots to take per search term (default: 1)
                                   For high-resolution temporal sampling, use values 10-60
-  --region <code>                 Country code for geo-targeting (default: US)
+  --region <code>                 Country code for geo-targeting (default: worldwide if not specified)
                                   Supports 247 country codes (see complete list below)
   --category <code>               Category filter for trends (default: all)
                                   Valid options:
@@ -179,22 +191,27 @@ Options:
                                     - t = Sci/Tech
                                     - s = Sports
                                     - h = Top stories
+  --only-keep-last                When using --screenshots-per-term > 1, only keep the last successful
+                                  (200) screenshot for each term and delete previous ones
   --help, -h                      Show this help message
 
 Examples:
-  # Forensic pruning detection
-  node index.js --keyword-file ./keywords.json --region US --date "Past 5 years"
+  # Worldwide forensic pruning detection
+  node index.js --keyword-file ./keywords.json --date "Past 5 years"
   
-  # High-frequency sampling (every hour for 24 hours)
-  node index.js --keyword-file ./monitor-terms.json --date "Past day" --screenshots-per-term 24
+  # US-specific with custom output directory
+  node index.js --keyword-file ./keywords.json --region US --date "Past 5 years" --output-dir ./us_forensic
   
-  # Cross-regional comparison
-  node index.js --region GB --category t --date "Past 90 days"
-  node index.js --region DE --category t --date "Past 90 days"
-  node index.js --region JP --category t --date "Past 90 days"
+  # High-frequency sampling with disk space optimization
+  node index.js --keyword-file ./monitor-terms.json --date "Past day" --screenshots-per-term 24 --only-keep-last
   
-  # Event-specific timeline reconstruction
-  node index.js --region US --date "2026-04-01 2026-05-31" --screenshots-per-term 30
+  # Cross-regional comparison with organized output
+  node index.js --region GB --category t --date "Past 90 days" --output-dir ./uk_tech
+  node index.js --region DE --category t --date "Past 90 days" --output-dir ./de_tech
+  node index.js --region JP --category t --date "Past 90 days" --output-dir ./jp_tech
+  
+  # Event-specific timeline reconstruction with auto-cleanup
+  node index.js --region US --date "2026-04-01 2026-05-31" --screenshots-per-term 30 --only-keep-last --output-dir ./event_analysis
 ```
 
 ### Country Codes (247 Supported)
@@ -259,16 +276,17 @@ npm install puppeteer-extra puppeteer-extra-plugin-stealth
 
 ### General Workflow Examples
 
-#### Example 1: Basic Forensic Collection
+#### Example 1: Basic Forensic Collection (Worldwide)
 ```
-maskirovka@3301 % node index.js --keyword-file ./keywords.json --region US --date "Past 90 days"
+maskirovka@3301 % node index.js --keyword-file ./keywords.json --date "Past 90 days"
 
 === Google Trends Scraper with OCR Analysis ===
 
 Using keyword file: ./keywords.json
+Using output directory: ./output
 Using date range: today 3-m
 Screenshots per term: 1
-Region: US - United States
+Region: Worldwide (no geo-restriction)
 Category: all - All categories
 ✓ Tesseract OCR found
 Loaded 1082 compound keywords from ./keywords.json
@@ -283,11 +301,11 @@ Output directory ready: ./output
 
 [1/6600] Processing term: "directed energy weapon"
   Screenshot 1/1 for "directed energy weapon"
-Navigating to: https://trends.google.com/trends/explore?date=today%203-m&q=directed%20energy%20weapon&hl=en-US&geo=US
-Screenshot saved: output/directed_energy_weapon_US_05-17-2026_14-30-22_pending_200.jpg
+Navigating to: https://trends.google.com/trends/explore?date=today%203-m&q=directed%20energy%20weapon&hl=en-US
+Screenshot saved: output/directed_energy_weapon_05-17-2026_14-30-22_pending_200.jpg
   Analyzing screenshot with OCR...
   Pattern detected: success (chart data found)
-  Renamed to: directed_energy_weapon_US_05-17-2026_14-30-22_success_200.jpg
+  Renamed to: directed_energy_weapon_05-17-2026_14-30-22_success_200.jpg
   ✓ Success! Chart loaded.
 
 ========== SUMMARY ==========
@@ -300,31 +318,48 @@ Total screenshots taken: 6600
 ==============================
 ```
 
-#### Example 2: High-Resolution Hourly Sampling
+#### Example 2: High-Resolution Sampling with Disk Optimization
 ```
-maskirovka@3301 % node index.js --keyword-file "./monitor-terms.json" --date "Past day" --screenshots-per-term 24
+maskirovka@3301 % node index.js --keyword-file "./monitor-terms.json" --date "Past day" --screenshots-per-term 24 --only-keep-last
 
 === Google Trends Scraper with OCR Analysis ===
 
 Using date range: now 1-d
 Screenshots per term: 24
-Will take 24 screenshot(s) per search term
+Mode: Only keeping last successful screenshot per term (disk space optimized)
 
 [1/50] Processing term: "AI regulation news"
   Will take 24 screenshot(s) for this term
   
   --- Screenshot 1/24 for "AI regulation news" ---
-  ✓ Success! Chart loaded. (Hour 0)
+  ✓ Success! Chart loaded. (Kept)
   
   --- Screenshot 2/24 for "AI regulation news" ---
-  ✓ Success! Chart loaded. (Hour 1)
+  ✓ Success! Chart loaded.
+  Deleted previous screenshot: ai_regulation_news_1_US_catt_05-17-2026_00-00-00_success_200.jpg
   
-  ... (continuing for 24 hours)
+  --- Screenshot 3/24 for "AI regulation news" ---
+  ⚠ Rate limited detected! (Preserving previous success)
   
-  --- Screenshot 24/24 for "AI regulation news" ---
-  ✓ Success! Chart loaded. (Hour 23)
+  --- Screenshot 4/24 for "AI regulation news" ---
+  ✓ Success! Chart loaded.
+  Deleted previous screenshot: ai_regulation_news_2_US_catt_05-17-2026_01-00-01_success_200.jpg
+  
+  ... (continuing for 24 hours, keeping only the most recent success)
 
-📊 Complete 24-hour timeline captured for retrospective reconstruction
+📊 After 24 screenshots, only the final successful screenshot remains
+```
+
+#### Example 3: Organized Multi-Region Collection
+```
+maskirovka@3301 % node index.js --region US --date "Past 90 days" --output-dir ./data/us
+maskirovka@3301 % node index.js --region GB --date "Past 90 days" --output-dir ./data/uk
+maskirovka@3301 % node index.js --region DE --date "Past 90 days" --output-dir ./data/germany
+
+# Results in organized directory structure:
+# ./data/us/[screenshots]
+# ./data/uk/[screenshots]
+# ./data/germany/[screenshots]
 ```
 
 ### How It Works
@@ -364,18 +399,22 @@ For general-purpose data collection, the `--screenshots-per-term` parameter enab
 - **Adaptive Delays**: Shorter delays between screenshots of same term (1-3 seconds) vs. different terms (2-5 seconds)
 - **Timestamp Preservation**: Each screenshot includes precise timestamp for temporal alignment
 - **Resolution Optimization**: Higher screenshot counts at shorter date ranges capture maximum granularity
+- **Disk Space Optimization**: `--only-keep-last` automatically deletes previous screenshots, keeping only the most recent successful capture
 
-**Example Strategy for Complete Trend Reconstruction:**
+**Example Strategies:**
 
 ```bash
-# Capture hourly data for 7 days (168 screenshots per term)
+# Full history (keeps all screenshots)
 node index.js --date "Past 7 days" --screenshots-per-term 168
 
-# Capture daily data for 90 days (90 screenshots per term)
+# Latest state only (minimal disk usage)
+node index.js --date "Past 7 days" --screenshots-per-term 168 --only-keep-last
+
+# Daily snapshots with history
 node index.js --date "Past 90 days" --screenshots-per-term 90
 
-# Capture weekly data for 5 years (260 screenshots per term)
-node index.js --date "Past 5 years" --screenshots-per-term 260
+# Daily snapshots, latest only
+node index.js --date "Past 90 days" --screenshots-per-term 90 --only-keep-last
 ```
 
 #### 5. Adaptive Block Handling with Audio Alert System
@@ -436,17 +475,20 @@ Beyond pruning detection, the tool supports:
 3. **Cross-Regional Comparison**: Compare how same topics trend in different countries
 4. **Category-Specific Research**: Focused analysis on Business, Health, Sci/Tech verticals
 5. **Algorithm Auditing**: Detect and document platform-side data modifications
+6. **Continuous Monitoring**: Cron-driven automated collection with disk-optimized storage
 
 ### Output Structure
 
 ```
-output/
+output/ (or custom directory via --output-dir)
 ├── [search_term]_[#]_[region]_[catX]_[timestamp]_[classification]_[status].jpg
 ├── ai_regulation_1_US_catt_05-17-2026_00-00-00_success_200.jpg   (Hour 0)
 ├── ai_regulation_2_US_catt_05-17-2026_01-00-01_success_200.jpg   (Hour 1)
 ├── ai_regulation_3_US_catt_05-17-2026_02-00-02_success_200.jpg   (Hour 2)
-├── ... (continuing for all screenshots)
+├── ... (continuing for all screenshots when --only-keep-last is not used)
 └── [additional_terms]_[timestamp]_[classification]_[status].jpg
+
+# With --only-keep-last enabled, only the most recent screenshot per term remains
 ```
 
 ### Post-Processing with GTRENDS-OCR
@@ -477,7 +519,7 @@ cat trends_data.json | jq '.["ai regulation"]["US"]["2026-05-17"]'
 
 - Node.js 18+
 - Tesseract OCR 4.0+
-- 4GB free disk space (for screenshots, scales with `--screenshots-per-term`)
+- 4GB free disk space (for screenshots, scales with `--screenshots-per-term`, reduced by `--only-keep-last`)
 - 8GB RAM minimum (16GB recommended for parallel processing)
 - Internet connection for Google Trends access
 
@@ -489,7 +531,7 @@ gtrends-mayday/
 ├── package.json            # Node.js dependencies
 ├── keywords.json           # Term triplets (customizable)
 ├── user-agents.json        # Browser user agent list
-├── output/                 # Screenshot output directory
+├── output/                 # Default screenshot output directory
 ├── literature/             # Accompanying literature
 └── .gitignore              # Git ignore rules
 ```

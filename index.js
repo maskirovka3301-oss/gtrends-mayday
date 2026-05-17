@@ -19,14 +19,13 @@ const say = (text) => {
 puppeteer.use(StealthPlugin());
 
 // Configuration
-const OUTPUT_DIR = './output';
+const DEFAULT_OUTPUT_DIR = './output';
 const DEFAULT_KEYWORDS_FILE = './keywords.json';
 const USER_AGENTS_FILE = './user-agents.json';
 const BLOCK_PAUSE_MS = 10 * 60 * 1000; // 10 minutes
 const DEFAULT_DATE_RANGE = 'today 1-m'; // Past 30 days
 const DEFAULT_SCREENSHOTS_PER_TERM = 1;
-const DEFAULT_REGION = 'US'; // United States
-const DEFAULT_CATEGORY = 'all'; // All categories
+// No default region - worldwide by default (geo parameter not added to URL)
 
 // Category Filter
 const CATEGORIES = {
@@ -314,15 +313,21 @@ const processedTerms = new Set();
 function parseCommandLineArgs() {
   const args = process.argv.slice(2);
   let keywordsFile = DEFAULT_KEYWORDS_FILE;
+  let outputDir = DEFAULT_OUTPUT_DIR;
   let dateRange = DEFAULT_DATE_RANGE;
   let screenshotsPerTerm = DEFAULT_SCREENSHOTS_PER_TERM;
-  let region = DEFAULT_REGION;
+  let region = null; // No default region - worldwide
   let category = DEFAULT_CATEGORY;
+  let onlyKeepLast = false;
   let customDateRange = null;
   
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--keyword-file' && i + 1 < args.length) {
       keywordsFile = args[i + 1];
+      i++;
+    } else if (args[i] === '--output-dir' && i + 1 < args.length) {
+      outputDir = args[i + 1];
+      console.log(`  Using custom output directory: ${outputDir}`);
       i++;
     } else if (args[i] === '--date' && i + 1 < args.length) {
       const dateArg = args[i + 1];
@@ -381,12 +386,17 @@ function parseCommandLineArgs() {
         process.exit(1);
       }
       i++;
+    } else if (args[i] === '--only-keep-last') {
+      onlyKeepLast = true;
+      console.log(`  Will only keep the last successful screenshot per term`);
+      i++;
     } else if (args[i] === '--help' || args[i] === '-h') {
       console.log(`
 Usage: node index.js [options]
 
 Options:
   --keyword-file <path>           Path to JSON file containing keywords array (default: ./keywords.json)
+  --output-dir <path>             Output directory for screenshots (default: ./output)
   --date <range>                  Date range for Google Trends (default: "Past 30 days")
                                   Valid options:
                                     - "Past hour"
@@ -400,7 +410,7 @@ Options:
                                     - "2024-present"
                                   Or custom range: "YYYY-MM-DD YYYY-MM-DD"
   --screenshots-per-term <number> Number of screenshots to take per search term (default: 1)
-  --region <code>                 Country code for geo-targeting (default: US)
+  --region <code>                 Country code for geo-targeting (default: worldwide if not specified)
                                   Example: US, GB, DE, FR, JP, etc.
   --category <code>               Category filter for trends (default: all)
                                   Valid options:
@@ -411,20 +421,34 @@ Options:
                                     - t = Sci/Tech
                                     - s = Sports
                                     - h = Top stories
+  --only-keep-last                When using --screenshots-per-term > 1, only keep the last successful
+                                  (200) screenshot for each term and delete previous ones
   --help, -h                      Show this help message
 
 Examples:
+  # Worldwide data (default)
   node index.js --keyword-file ./my-keywords.json
-  node index.js --date "Past 90 days" --screenshots-per-term 5
-  node index.js --region GB --category t --date "Past 12 months"
-  node index.js --region DE --category b --screenshots-per-term 30
-  node index.js --region JP --category e --date "2024-01-01 2024-12-31"
+  
+  # Region-specific data (United States)
+  node index.js --region US --date "Past 90 days"
+  
+  # Custom output directory
+  node index.js --output-dir ./my_screenshots --date "Past 90 days" --screenshots-per-term 5
+  
+  # UK data for specific category, keeping only the last screenshot
+  node index.js --region GB --category t --date "Past 12 months" --screenshots-per-term 30 --only-keep-last
+  
+  # High-frequency sampling while minimizing disk usage
+  node index.js --screenshots-per-term 100 --date "Past day" --only-keep-last --output-dir ./hourly_snapshots
+  
+  # German data with only last screenshot kept
+  node index.js --region DE --category b --screenshots-per-term 30 --only-keep-last --output-dir /mnt/data/trends
       `);
       process.exit(0);
     }
   }
   
-  return { keywordsFile, dateRange, screenshotsPerTerm, region, category };
+  return { keywordsFile, outputDir, dateRange, screenshotsPerTerm, region, category, onlyKeepLast };
 }
 
 /**
@@ -687,15 +711,15 @@ async function initializeCleanSession(page) {
 }
 
 /**
- * Takes a screenshot and analyzes it
+ * Takes a screenshot and analyzes it, optionally tracking previous screenshots for deletion
  */
-async function screenshotAndAnalyze(page, term, timestamp, screenshotNumber, totalScreenshotsForTerm, dateRange, region, category) {
+async function screenshotAndAnalyze(page, term, timestamp, screenshotNumber, totalScreenshotsForTerm, dateRange, region, category, outputDir, previousScreenshotPath = null) {
   const encodedTerm = encodeURIComponent(term);
   // Build URL with region and category parameters
   let url = `https://trends.google.com/trends/explore?date=${encodeURIComponent(dateRange)}&q=${encodedTerm}&hl=en-US`;
   
-  // Add geo parameter if region is specified and not 'all'
-  if (region && region !== 'all') {
+  // Add geo parameter ONLY if region is specified (not null)
+  if (region) {
     url += `&geo=${region}`;
   }
   
@@ -729,7 +753,7 @@ async function screenshotAndAnalyze(page, term, timestamp, screenshotNumber, tot
   const regionLabel = region ? `_${region}` : '';
   const categoryLabel = category && category !== 'all' ? `_cat${category}` : '';
   const filename = `${safeTerm}${screenshotLabel}${regionLabel}${categoryLabel}_${timestampForFile}_pending_${statusCode}.jpg`;
-  const filepath = path.join(OUTPUT_DIR, filename);
+  const filepath = path.join(outputDir, filename);
   
   await page.screenshot({ path: filepath, type: 'jpeg', quality: 80 });
   console.log(`Screenshot saved: ${filepath} (Status: ${statusCode} ${statusText})`);
@@ -737,9 +761,19 @@ async function screenshotAndAnalyze(page, term, timestamp, screenshotNumber, tot
   const analysis = await analyzeScreenshot(filepath);
   
   const finalFilename = `${safeTerm}${screenshotLabel}${regionLabel}${categoryLabel}_${timestampForFile}_${analysis.type}_${statusCode}.jpg`;
-  const finalFilepath = path.join(OUTPUT_DIR, finalFilename);
+  const finalFilepath = path.join(outputDir, finalFilename);
   await fs.rename(filepath, finalFilepath);
   console.log(`  Renamed to: ${finalFilename}`);
+  
+  // If we have a previous screenshot and it's a success, delete it (only-keep-last mode)
+  if (previousScreenshotPath && analysis.type === 'success') {
+    try {
+      await fs.unlink(previousScreenshotPath);
+      console.log(`  Deleted previous screenshot: ${path.basename(previousScreenshotPath)}`);
+    } catch (err) {
+      console.log(`  Warning: Could not delete previous screenshot: ${err.message}`);
+    }
+  }
   
   return {
     screenshotPath: finalFilepath,
@@ -769,13 +803,23 @@ async function pauseWithNotification(ms, reason) {
  */
 async function main() {
   // Parse command line arguments
-  const { keywordsFile, dateRange, screenshotsPerTerm, region, category } = parseCommandLineArgs();
+  const { keywordsFile, outputDir, dateRange, screenshotsPerTerm, region, category, onlyKeepLast } = parseCommandLineArgs();
   
   console.log('=== Google Trends Scraper with OCR Analysis ===\n');
   console.log(`Using keyword file: ${keywordsFile}`);
+  console.log(`Using output directory: ${outputDir}`);
   console.log(`Using date range: ${dateRange}`);
   console.log(`Screenshots per term: ${screenshotsPerTerm}`);
-  console.log(`Region: ${region} - ${GEO_PICKER[region] || 'Unknown'}`);
+  if (onlyKeepLast && screenshotsPerTerm > 1) {
+    console.log(`Mode: Only keeping last successful screenshot per term (disk space optimized)`);
+  } else if (onlyKeepLast && screenshotsPerTerm === 1) {
+    console.log(`Note: --only-keep-last has no effect when --screenshots-per-term = 1`);
+  }
+  if (region) {
+    console.log(`Region: ${region} - ${GEO_PICKER[region] || 'Unknown'}`);
+  } else {
+    console.log(`Region: Worldwide (no geo-restriction)`);
+  }
   console.log(`Category: ${category} - ${CATEGORIES[category] || 'Unknown'}`);
   
   const hasTesseract = await checkTesseract();
@@ -795,8 +839,9 @@ async function main() {
   console.log(`Loaded ${compoundKeywords.length} compound keywords from ${keywordsFile}`);
   console.log(`Loaded ${userAgents.length} user agents from ${USER_AGENTS_FILE}`);
   
-  await fs.mkdir(OUTPUT_DIR, { recursive: true });
-  console.log(`Output directory ready: ${OUTPUT_DIR}`);
+  // Create output directory if it doesn't exist
+  await fs.mkdir(outputDir, { recursive: true });
+  console.log(`Output directory ready: ${outputDir}`);
   
   const browser = await puppeteer.launch({ 
     headless: true,
@@ -842,6 +887,7 @@ async function main() {
   let totalError = 0;
   let consecutiveBlocks = 0;
   let processedCount = 0;
+  let totalDeleted = 0;
   
   console.log('\n=== Processing search terms in randomized order ===');
   
@@ -853,6 +899,8 @@ async function main() {
     processedCount++;
     console.log(`\n[${processedCount}/${searchTermsList.length}] Processing term: "${term}"`);
     console.log(`  Will take ${screenshotsPerTerm} screenshot(s) for this term`);
+    
+    let lastSuccessfulPath = null;
     
     // Process multiple screenshots for the same term
     for (let screenshotIdx = 1; screenshotIdx <= screenshotsPerTerm; screenshotIdx++) {
@@ -866,7 +914,9 @@ async function main() {
         requestsUntilNextRotation = randomInt(15, 30);
       }
       
-      const result = await screenshotAndAnalyze(page, term, getTimestamp(), screenshotIdx, screenshotsPerTerm, dateRange, region, category);
+      // Pass the previous successful screenshot path for deletion if in only-keep-last mode
+      const previousPath = (onlyKeepLast && lastSuccessfulPath) ? lastSuccessfulPath : null;
+      const result = await screenshotAndAnalyze(page, term, getTimestamp(), screenshotIdx, screenshotsPerTerm, dateRange, region, category, outputDir, previousPath);
       totalScreenshots++;
       requestsSinceLastRotation++;
       
@@ -874,10 +924,19 @@ async function main() {
         totalSuccess++;
         consecutiveBlocks = 0;
         console.log(`  ✓ Success! Chart loaded.`);
+        // Track the last successful screenshot path for potential deletion of previous
+        if (onlyKeepLast && screenshotsPerTerm > 1) {
+          if (lastSuccessfulPath && lastSuccessfulPath !== result.screenshotPath) {
+            totalDeleted++;
+          }
+          lastSuccessfulPath = result.screenshotPath;
+        }
       } else if (result.analysis.type === 'no_data') {
         totalNoData++;
         consecutiveBlocks = 0;
         console.log(`  ℹ No data available or Oops error - valid response.`);
+        // If we get no_data and we're in only-keep-last mode, we should keep the previous success if it exists
+        // Don't update lastSuccessfulPath
       } else if (result.analysis.type === 'captcha') {
         totalCaptcha++;
         consecutiveBlocks++;
@@ -978,6 +1037,10 @@ async function main() {
   console.log(`  - Rate limited (429): ${totalRateLimited}`);
   console.log(`  - CAPTCHA pages: ${totalCaptcha}`);
   console.log(`  - Other errors: ${totalError}`);
+  if (onlyKeepLast && screenshotsPerTerm > 1) {
+    console.log(`  - Previous screenshots deleted (only-keep-last): ${totalDeleted}`);
+    console.log(`  - Final screenshots remaining: ${totalSuccess - totalDeleted}`);
+  }
   console.log(`==============================\n`);
 }
 

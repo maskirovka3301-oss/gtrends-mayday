@@ -57,14 +57,16 @@ tesseract --version
 
 ```json
 [
-  "microwave oven",
-  "meta material", 
-  "google trends",
-  "microwave dinner",
-  "rf weapon",
-  "havana syndrome",
-  "havana embassy"
-  // ... 1,200+ term triplets
+  "directed energy weapon",
+  "high power microwave",
+  "rf jamming array",
+  "millimeter wave cannon",
+  "pulsed power system",
+  "active denial system",
+  "microwave auditory effect",
+  "neural interference weapon",
+  "massive mimo panel",
+  // ... 1000+ term triplets
 ]
 ```
 
@@ -295,9 +297,13 @@ If you use this tool in academic research, journalistic investigations, or congr
 ```
 Azulay, D. R. (2026). Exploratory Analysis of Search Trend Anomalies: 
 Evidence of Algorithmic Pruning in RF/5G-Related Query Data.
+https://github.com/maskirovka3301-oss/gtrends-mayday/tree/main/literature
+
+Azulay, D. R. (2026). GTRENDS-MAYDAY: Algorithmic Pruning Detection 
+& Forensic Screenshot Collection Tool. GitHub.
 https://github.com/maskirovka3301-oss/gtrends-mayday
 
-Maskirovka3301. (2026). GTRENDS-MAYDAY: Algorithmic Pruning Detection 
+Azulay, D. R. (2026). GTRENDS-MAYDAY: Algorithmic Pruning Detection 
 & Forensic Screenshot Collection Tool. GitHub.
 https://github.com/maskirovka3301-oss/gtrends-mayday
 ```
@@ -311,7 +317,6 @@ MIT License - See LICENSE file for details.
 For inquiries regarding the April 29, 2026 whistleblower disclosure, algorithmic pruning research, or technical support:
 
 **Email**: maskirovka3301@gmail.com  
-**PGP Fingerprint**: `3301 4D2F 8A9B C4E0 77D1  B3C5 9E2A 7F8B 1D4C 6E8F`
 
 ### Disclaimer
 

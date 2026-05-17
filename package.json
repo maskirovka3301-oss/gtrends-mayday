@@ -1,0 +1,25 @@
+{
+  "name": "gtrends-mayday",
+  "version": "1.0.0",
+  "description": "Headless browser scraper for Google Trends with local vision model analysis",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "google-trends",
+    "puppeteer",
+    "screenshot",
+    "headless",
+    "stealth"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

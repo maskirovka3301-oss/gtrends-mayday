@@ -1,0 +1,112 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Output directories
+output/
+models/
+*.jpg
+*.png
+*.jpeg
+baseline_trends_home_*.jpg
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.~*
+*.orig
+*.rej
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Logs
+logs/
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.cache
+*.bak
+*.backup
+
+# Puppeteer/Chromium files
+.puppeteer/
+chromium/
+
+# OCR temporary files
+*_ocr.txt
+
+# Python (if any venv used for Tesseract)
+venv/
+env/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+
+# Testing
+coverage/
+.nyc_output/
+*.test.js
+*.spec.js
+
+# Build outputs
+dist/
+build/
+out/
+
+# Screenshot pending files (before analysis)
+*_pending_*.jpg
+
+# Archive/compressed files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Backup files
+*.old
+*.original
+*.merged
+*.backup
+
+# Custom application data
+*.json.bak
+*.json.old
+user-agents.json.bak
+keywords.json.bak

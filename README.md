@@ -297,12 +297,10 @@ gtrends-mayday/
 If you use this tool in academic research, journalistic investigations, or congressional testimony, please cite:
 
 ```
-Azulay, D. R. (2026). Exploratory Analysis of Search Trend Anomalies: 
-Evidence of Algorithmic Pruning in RF/5G-Related Query Data.
+Azulay, D. R. (2026). Exploratory Analysis of Search Trend Anomalies: Evidence of Algorithmic Pruning in RF/5G-Related Query Data.
 https://github.com/maskirovka3301-oss/gtrends-mayday/tree/main/literature
 
-Azulay, D. R. (2026). GTRENDS-MAYDAY: Algorithmic Pruning Detection 
-& Forensic Screenshot Collection Tool. GitHub.
+Azulay, D. R. (2026). GTRENDS-MAYDAY: Algorithmic Pruning Detection & Forensic Screenshot Collection Tool. GitHub.
 https://github.com/maskirovka3301-oss/gtrends-mayday
 
 Azulay, D. R. (2026). GTRENDS-OCR: Google Trends Forensic Screenshot Organizer and Data Extraction Utility. GitHub.

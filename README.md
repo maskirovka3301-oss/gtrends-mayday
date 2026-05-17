@@ -285,7 +285,7 @@ A comprehensive database containing **>1,200 term triplets** spanning RF, 5G inf
 gtrends-mayday/
 ├── index.js                 # Main scraper script
 ├── package.json            # Node.js dependencies
-├── keywords.json           # 1,200+ term triplets
+├── keywords.json           # 1000+ term triplets
 ├── user-agents.json        # Browser user agent list
 ├── output/                 # Screenshot output directory
 ├── models/                 # Cached vision models

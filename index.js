@@ -317,7 +317,7 @@ function parseCommandLineArgs() {
   let dateRange = DEFAULT_DATE_RANGE;
   let screenshotsPerTerm = DEFAULT_SCREENSHOTS_PER_TERM;
   let region = null; // No default region - worldwide
-  let category = DEFAULT_CATEGORY;
+  let category = 'all';
   let onlyKeepLast = false;
   let customDateRange = null;
   

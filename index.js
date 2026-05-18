@@ -25,6 +25,8 @@ const USER_AGENTS_FILE = './user-agents.json';
 const BLOCK_PAUSE_MS = 10 * 60 * 1000; // 10 minutes
 const DEFAULT_DATE_RANGE = 'today 1-m'; // Past 30 days
 const DEFAULT_SCREENSHOTS_PER_TERM = 1;
+const MAX_RETRIES = 3; // Maximum number of retries for navigation errors
+const RETRY_DELAY_MS = 5000; // Delay between retries (5 seconds)
 
 // Category Filter
 const CATEGORIES = {
@@ -401,17 +403,20 @@ Options:
   --help, -h                      Show this help message
 
 Examples:
-  # Normal mode (rotates user agent every 15-30 requests)
-  node index.js --keyword-file mykeywords.json
+  # Worldwide forensic pruning detection (exact keywords, normal UA rotation)
+  node index.js --keyword-file ./keywords.json --date "Past 5 years"
   
-  # Switch UA only on failure (conserves IP reputation)
-  node index.js --keyword-file mykeywords.json --switch-ua-on-fail-only
+  # Same but with decomposition (generates all subsequences)
+  node index.js --keyword-file ./keywords.json --date "Past 5 years" --explode
   
-  # High-frequency sampling with conservative UA switching
-  node index.js --screenshots-per-term 100 --date "Past day" --switch-ua-on-fail-only --only-keep-last
+  # Conservative UA mode for long-running collections
+  node index.js --keyword-file ./keywords.json --date "Past 5 years" --switch-ua-on-fail-only
   
-  # Complete forensic configuration with conservative UA switching
-  node index.js --keyword-file ./forensic-terms.json --region US --date "Past 5 years" --screenshots-per-term 60 --only-keep-last --explode --switch-ua-on-fail-only
+  # US-specific with custom output directory
+  node index.js --keyword-file ./keywords.json --region US --date "Past 5 years" --output-dir ./us_forensic
+  
+  # High-frequency sampling with disk space optimization and conservative UA
+  node index.js --keyword-file ./monitor-terms.json --date "Past day" --screenshots-per-term 24 --only-keep-last --switch-ua-on-fail-only
       `);
       process.exit(0);
     }
@@ -701,6 +706,7 @@ async function initializeCleanSession(page) {
 
 /**
  * Takes a screenshot, analyzes it, and deletes if invalid (no chart data)
+ * With retry logic for navigation errors and session issues
  */
 async function screenshotAndAnalyze(page, term, screenshotNumber, totalScreenshotsForTerm, dateRange, region, category, outputDir, previousScreenshotPath = null) {
   const encodedTerm = encodeURIComponent(term);
@@ -714,82 +720,124 @@ async function screenshotAndAnalyze(page, term, screenshotNumber, totalScreensho
     url += `&cat=${category}`;
   }
   
-  console.log(`Navigating to: ${url}`);
+  let retries = 0;
+  let lastError = null;
   
-  let response;
-  let statusCode = 0;
-  let statusText = 'unknown';
-  
-  try {
-    response = await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-    if (response) {
-      statusCode = response.status();
-      statusText = response.statusText();
-    }
-  } catch (error) {
-    console.error(`Navigation error: ${error.message}`);
-    statusText = error.message;
-  }
-  
-  await sleep(3000);
-  
-  const safeTerm = sanitizeFilename(term);
-  const timestampForFile = getTimestamp();
-  const screenshotLabel = totalScreenshotsForTerm > 1 ? `_${screenshotNumber}` : '';
-  const regionLabel = region ? `_${region}` : '';
-  const categoryLabel = category && category !== 'all' ? `_cat${category}` : '';
-  const filename = `${safeTerm}${screenshotLabel}${regionLabel}${categoryLabel}_${timestampForFile}_pending_${statusCode}.jpg`;
-  const filepath = path.join(outputDir, filename);
-  
-  await page.screenshot({ path: filepath, type: 'jpeg', quality: 80 });
-  console.log(`Screenshot saved: ${filepath}`);
-  
-  const analysis = await analyzeScreenshot(filepath);
-  
-  // If screenshot is not valid (no chart data, error, etc.), delete it
-  if (!analysis.valid) {
+  while (retries <= MAX_RETRIES) {
     try {
-      await fs.unlink(filepath);
-      console.log(`  Deleted invalid screenshot (${analysis.type}): ${path.basename(filepath)}`);
+      console.log(`Navigating to: ${url}`);
+      
+      let response;
+      let statusCode = 0;
+      let statusText = 'unknown';
+      
+      try {
+        response = await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+        if (response) {
+          statusCode = response.status();
+          statusText = response.statusText();
+        }
+      } catch (navError) {
+        // Check if this is a recoverable navigation error
+        if (navError.message.includes('Navigating frame was detached') ||
+            navError.message.includes('Session closed') ||
+            navError.message.includes('Protocol error') ||
+            navError.message.includes('Target closed')) {
+          console.log(`  Navigation error (recoverable): ${navError.message}`);
+          throw navError; // Will be caught and retried
+        } else {
+          // Non-recoverable error, rethrow
+          throw navError;
+        }
+      }
+      
+      await sleep(3000);
+      
+      const safeTerm = sanitizeFilename(term);
+      const timestampForFile = getTimestamp();
+      const screenshotLabel = totalScreenshotsForTerm > 1 ? `_${screenshotNumber}` : '';
+      const regionLabel = region ? `_${region}` : '';
+      const categoryLabel = category && category !== 'all' ? `_cat${category}` : '';
+      const filename = `${safeTerm}${screenshotLabel}${regionLabel}${categoryLabel}_${timestampForFile}_pending_${statusCode}.jpg`;
+      const filepath = path.join(outputDir, filename);
+      
+      await page.screenshot({ path: filepath, type: 'jpeg', quality: 80 });
+      console.log(`Screenshot saved: ${filepath}`);
+      
+      const analysis = await analyzeScreenshot(filepath);
+      
+      // If screenshot is not valid (no chart data, error, etc.), delete it
+      if (!analysis.valid) {
+        try {
+          await fs.unlink(filepath);
+          console.log(`  Deleted invalid screenshot (${analysis.type}): ${path.basename(filepath)}`);
+          return {
+            screenshotPath: null,
+            analysis: analysis,
+            statusCode: statusCode,
+            deleted: true
+          };
+        } catch (err) {
+          console.log(`  Warning: Could not delete invalid screenshot: ${err.message}`);
+          return {
+            screenshotPath: filepath,
+            analysis: analysis,
+            statusCode: statusCode,
+            deleted: false
+          };
+        }
+      }
+      
+      // Valid screenshot - rename with classification
+      const finalFilename = `${safeTerm}${screenshotLabel}${regionLabel}${categoryLabel}_${timestampForFile}_${analysis.type}_${statusCode}.jpg`;
+      const finalFilepath = path.join(outputDir, finalFilename);
+      await fs.rename(filepath, finalFilepath);
+      console.log(`  Renamed to: ${finalFilename}`);
+      
+      // If we have a previous screenshot and it's a success, delete it (only-keep-last mode)
+      if (previousScreenshotPath && analysis.type === 'success') {
+        try {
+          await fs.unlink(previousScreenshotPath);
+          console.log(`  Deleted previous screenshot: ${path.basename(previousScreenshotPath)}`);
+        } catch (err) {
+          console.log(`  Warning: Could not delete previous screenshot: ${err.message}`);
+        }
+      }
+      
       return {
-        screenshotPath: null,
-        analysis: analysis,
-        statusCode: statusCode,
-        deleted: true
-      };
-    } catch (err) {
-      console.log(`  Warning: Could not delete invalid screenshot: ${err.message}`);
-      return {
-        screenshotPath: filepath,
+        screenshotPath: finalFilepath,
         analysis: analysis,
         statusCode: statusCode,
         deleted: false
       };
+      
+    } catch (error) {
+      lastError = error;
+      retries++;
+      
+      console.log(`  Error during screenshot/analysis (attempt ${retries}/${MAX_RETRIES}): ${error.message}`);
+      
+      if (retries <= MAX_RETRIES) {
+        console.log(`  Retrying in ${RETRY_DELAY_MS / 1000} seconds...`);
+        await sleep(RETRY_DELAY_MS);
+        
+        // Try to recover the page state
+        try {
+          // Check if page is still usable
+          await page.evaluate(() => 1);
+        } catch (pageError) {
+          console.log(`  Page appears to be closed or broken. Attempting to recover...`);
+          // Page is broken, we need to reinitialize the session at a higher level
+          // Throw a special error that will cause the main loop to reinitialize
+          throw new Error('PAGE_STATE_CORRUPTED');
+        }
+      }
     }
   }
   
-  // Valid screenshot - rename with classification
-  const finalFilename = `${safeTerm}${screenshotLabel}${regionLabel}${categoryLabel}_${timestampForFile}_${analysis.type}_${statusCode}.jpg`;
-  const finalFilepath = path.join(outputDir, finalFilename);
-  await fs.rename(filepath, finalFilepath);
-  console.log(`  Renamed to: ${finalFilename}`);
-  
-  // If we have a previous screenshot and it's a success, delete it (only-keep-last mode)
-  if (previousScreenshotPath && analysis.type === 'success') {
-    try {
-      await fs.unlink(previousScreenshotPath);
-      console.log(`  Deleted previous screenshot: ${path.basename(previousScreenshotPath)}`);
-    } catch (err) {
-      console.log(`  Warning: Could not delete previous screenshot: ${err.message}`);
-    }
-  }
-  
-  return {
-    screenshotPath: finalFilepath,
-    analysis: analysis,
-    statusCode: statusCode,
-    deleted: false
-  };
+  // If we've exhausted all retries, throw the last error
+  console.error(`  Failed after ${MAX_RETRIES} retries. Last error: ${lastError.message}`);
+  throw lastError;
 }
 
 /**
@@ -818,6 +866,7 @@ async function main() {
   console.log(`Using date range: ${dateRange}`);
   console.log(`Screenshots per term: ${screenshotsPerTerm}`);
   console.log(`Invalid screenshot handling: Deleting all non-chart screenshots (Oops, errors, no_data, etc.)`);
+  console.log(`Max retries per screenshot: ${MAX_RETRIES}`);
   
   if (explode) {
     console.log(`Keyword decomposition: ENABLED (generating all subsequences)`);
@@ -888,7 +937,7 @@ async function main() {
   
   // Initialize user agent handling
   let requestsSinceLastRotation = 0;
-  let requestsUntilNextRotation = switchUaOnFailOnly ? Infinity : randomInt(15, 30); // If conservative mode, never rotate on timer
+  let requestsUntilNextRotation = switchUaOnFailOnly ? Infinity : randomInt(15, 30);
   let currentUserAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
   await page.setUserAgent(currentUserAgent);
   console.log(`Initial user agent: ${currentUserAgent.substring(0, 60)}...`);
@@ -932,11 +981,39 @@ async function main() {
       }
       
       const previousPath = (onlyKeepLast && lastSuccessfulPath) ? lastSuccessfulPath : null;
-      const result = await screenshotAndAnalyze(page, term, screenshotIdx, screenshotsPerTerm, dateRange, region, category, outputDir, previousPath);
+      
+      let result;
+      let pageNeedsReinit = false;
+      
+      try {
+        result = await screenshotAndAnalyze(page, term, screenshotIdx, screenshotsPerTerm, dateRange, region, category, outputDir, previousPath);
+      } catch (error) {
+        if (error.message === 'PAGE_STATE_CORRUPTED' || 
+            error.message.includes('Session closed') ||
+            error.message.includes('Target closed')) {
+          console.log(`  Page state corrupted. Reinitializing session...`);
+          pageNeedsReinit = true;
+          
+          // Try to recover by reinitializing the session
+          try {
+            await initializeCleanSession(page);
+            console.log(`  Session reinitialized successfully, retrying screenshot...`);
+            result = await screenshotAndAnalyze(page, term, screenshotIdx, screenshotsPerTerm, dateRange, region, category, outputDir, previousPath);
+          } catch (retryError) {
+            console.error(`  Failed to recover after page corruption: ${retryError.message}`);
+            throw retryError;
+          }
+        } else {
+          throw error;
+        }
+      }
       
       totalScreenshots++;
-      if (!switchUaOnFailOnly) {
+      if (!switchUaOnFailOnly && !pageNeedsReinit) {
         requestsSinceLastRotation++;
+      } else if (pageNeedsReinit) {
+        // Reset counter after reinitialization
+        requestsSinceLastRotation = 0;
       }
       
       if (result.deleted) {

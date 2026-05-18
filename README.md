@@ -57,14 +57,16 @@ Beyond pruning detection, this tool has been extended into a **general-purpose, 
   
   By capturing the highest available resolution at each interval, you can detect anomalies invisible in lower-resolution views.
 
-### Anti-Detection & Block Handling
+### Anti-Detection, Block Handling & Resilience
 
-The tool implements multiple layers of evasion that make blocks extremely rare:
+The tool implements multiple layers of evasion and robust error recovery to ensure long-running stability:
 
 - **User Agent Management**: Two modes available (see below)
 - **Search Term Randomization**: Shuffles the order of all search terms to avoid predictable request patterns
 - **Session Freshness**: Clears all browser storage (cookies, localStorage, cache) when blocks are detected
 - **Intelligent Delays**: Configurable delays (2-5 seconds) between requests to avoid triggering rate limits
+- **Automatic Retry Logic**: Built-in retry mechanism (3 attempts) for transient errors like frame detachment or session closure, preventing crashes during extended runs.
+- **Session State Recovery**: If the browser page becomes corrupted, the tool automatically reinitializes the session and retries the failed operation.
 
 #### User Agent Rotation Modes
 
@@ -351,6 +353,7 @@ Using output directory: ./output
 Using date range: today 3-m
 Screenshots per term: 1
 Invalid screenshot handling: Deleting all non-chart screenshots (Oops, errors, no_data, etc.)
+Max retries per screenshot: 3
 Keyword decomposition: DISABLED (using exact keywords only)
 UA switching mode: NORMAL (rotating every 15-30 requests)
 Region: Worldwide (no geo-restriction)
@@ -427,7 +430,23 @@ Total screenshots taken: 50
 ==============================
 ```
 
-#### Example 3: High-Resolution Sampling with Disk Optimization and Decomposition
+#### Example 3: Transient Error Recovery (Automatic Retry)
+```
+[2254/6600] Processing term: "dew"
+  --- Screenshot 1/1 ---
+Navigating to: https://trends.google.com/trends/explore?date=today%201-m&q=dew&hl=en-US
+Navigation error: Navigating frame was detached
+  Error during screenshot/analysis (attempt 1/3): Navigating frame was detached
+  Retrying in 5 seconds...
+Navigating to: https://trends.google.com/trends/explore?date=today%201-m&q=dew&hl=en-US
+Screenshot saved: output/dew_pending_200.jpg
+  Analyzing screenshot with OCR...
+  Pattern detected: success (keeping screenshot)
+  Renamed to: dew_05-20-2026_10-30-45_success_200.jpg
+  ✓ Valid chart screenshot kept!
+```
+
+#### Example 4: High-Resolution Sampling with Disk Optimization and Decomposition
 ```
 maskirovka@3301 % node index.js --keyword-file "./monitor-terms.json" --date "Past day" --screenshots-per-term 24 --only-keep-last --explode --switch-ua-on-fail-only
 
@@ -481,7 +500,7 @@ Total screenshots taken: 3744
 ==============================
 ```
 
-#### Example 4: Organized Multi-Region Collection with Exact Keywords
+#### Example 5: Organized Multi-Region Collection with Exact Keywords
 ```
 maskirovka@3301 % node index.js --region US --date "Past 90 days" --output-dir ./data/us --switch-ua-on-fail-only
 maskirovka@3301 % node index.js --region GB --date "Past 90 days" --output-dir ./data/uk --switch-ua-on-fail-only
@@ -495,7 +514,7 @@ maskirovka@3301 % node index.js --region DE --date "Past 90 days" --output-dir .
 
 ### How It Works
 
-This tool implements a sophisticated scraping pipeline optimized for both pruning research and general-purpose data collection:
+This tool implements a sophisticated, resilient scraping pipeline optimized for both pruning research and general-purpose data collection:
 
 #### 1. Keyword Processing & Semantic Gradient Generation
 
@@ -504,7 +523,7 @@ This tool implements a sophisticated scraping pipeline optimized for both prunin
 - **Deduplication & Randomization**: Unique search terms are shuffled to avoid predictable request patterns that could trigger rate limiting
 - **Comprehensive Coverage**: Generates 5,000-7,000 unique search terms from 1,200+ triplets when using explode mode
 
-#### 2. Stealth Browser Automation
+#### 2. Stealth Browser Automation with Resilience
 
 - **Puppeteer-Extra with Stealth Plugin**: Evades headless browser detection using multiple evasion techniques
 - **User Agent Management**: Two modes available
@@ -512,6 +531,8 @@ This tool implements a sophisticated scraping pipeline optimized for both prunin
   - **Conservative (`--switch-ua-on-fail-only`)**: Maintains consistent fingerprint, only rotates on block
 - **Session Freshness**: Clears all browser storage (cookies, localStorage, cache) before collection and during 10-minute cooldown periods
 - **Intelligent Throttling**: Configurable delays (2-5 seconds) between requests to avoid triggering rate limits
+- **Automatic Retry Logic**: The tool automatically retries failed operations (up to 3 times) for recoverable errors like `Navigating frame was detached` or `Session closed`, ensuring long-running stability.
+- **Session State Recovery**: If the browser page becomes corrupted, the tool detects this, reinitializes a clean session, and retries the failed operation.
 
 #### 3. Forensic Screenshot Validation & Auto-Deletion
 
@@ -555,7 +576,7 @@ node index.js --date "Past 90 days" --screenshots-per-term 90 --only-keep-last -
 
 #### 5. Adaptive Block Handling with Audio Alert System
 
-Due to the tool's robust anti-detection measures (user agent management, shuffled search terms, session clearing), blocks are rare in practice. However, when they do occur after thousands of consecutive requests, the tool implements:
+Due to the tool's robust anti-detection measures (user agent management, shuffled search terms, session clearing, and retry logic), blocks are rare in practice. However, when they do occur after thousands of consecutive requests, the tool implements:
 
 - **Consecutive Block Detection**: Tracks sequential failures to distinguish transient issues from sustained platform blocks
 - **10-Minute Cooldown with TTS Notification**: Upon 2 consecutive blocks, triggers:
@@ -664,8 +685,7 @@ gtrends-mayday/
 ├── user-agents.json        # Browser user agent list
 ├── output/                 # Default screenshot output directory (only valid charts)
 ├── literature/             # Accompanying literature
-└── .gitignore              # Git ignore rules
-```
+└── .gitignore              # Git ignore rules```
 
 ### Citation
 

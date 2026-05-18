@@ -319,6 +319,7 @@ function parseCommandLineArgs() {
   let category = 'all';
   let onlyKeepLast = false;
   let explode = false;
+  let switchUaOnFailOnly = false;
   
   console.log('\n=== Command line arguments parsed ===');
   
@@ -376,6 +377,9 @@ function parseCommandLineArgs() {
     } else if (arg === '--explode') {
       explode = true;
       console.log(`  --explode: enabled (will decompose keywords into subsequences)`);
+    } else if (arg === '--switch-ua-on-fail-only') {
+      switchUaOnFailOnly = true;
+      console.log(`  --switch-ua-on-fail-only: enabled (only switch user agent on block/pause)`);
     } else if (arg === '--help' || arg === '-h') {
       console.log(`
 Usage: node index.js [options]
@@ -392,21 +396,22 @@ Options:
   --category <code>               Category filter (default: all)
   --only-keep-last                Only keep the last successful screenshot per term
   --explode                       Decompose keywords into all non-empty subsequences (order preserved)
-                                  When not specified, only the exact keyword strings are used
+  --switch-ua-on-fail-only        Only switch user agent when a block triggers the 10-minute pause.
+                                  Normal mode rotates user agent every 15-30 requests.
   --help, -h                      Show this help message
 
 Examples:
-  # Exact keyword matching only (no decomposition)
-  node index.js --keyword-file mykeywords.json --output-dir ./exact_matches
+  # Normal mode (rotates user agent every 15-30 requests)
+  node index.js --keyword-file mykeywords.json
   
-  # Decompose keywords into subsequences (original behavior)
-  node index.js --keyword-file mykeywords.json --explode --output-dir ./decomposed
+  # Switch UA only on failure (conserves IP reputation)
+  node index.js --keyword-file mykeywords.json --switch-ua-on-fail-only
   
-  # High-frequency sampling with exact keywords
-  node index.js --screenshots-per-term 100 --date "Past day" --only-keep-last --keyword-file mykeywords.json
+  # High-frequency sampling with conservative UA switching
+  node index.js --screenshots-per-term 100 --date "Past day" --switch-ua-on-fail-only --only-keep-last
   
-  # Region-specific with decomposition
-  node index.js --region US --explode --date "Past 90 days" --output-dir ./us_decomposed
+  # Complete forensic configuration with conservative UA switching
+  node index.js --keyword-file ./forensic-terms.json --region US --date "Past 5 years" --screenshots-per-term 60 --only-keep-last --explode --switch-ua-on-fail-only
       `);
       process.exit(0);
     }
@@ -414,7 +419,8 @@ Examples:
   
   console.log(`\n  Final output directory: ${outputDir}`);
   console.log(`  Explode mode: ${explode ? 'ON (decomposing keywords)' : 'OFF (exact keywords only)'}`);
-  return { keywordsFile, outputDir, dateRange, screenshotsPerTerm, region, category, onlyKeepLast, explode };
+  console.log(`  UA switching mode: ${switchUaOnFailOnly ? 'ONLY ON FAIL (conservative)' : 'NORMAL (every 15-30 requests)'}`);
+  return { keywordsFile, outputDir, dateRange, screenshotsPerTerm, region, category, onlyKeepLast, explode, switchUaOnFailOnly };
 }
 
 /**
@@ -804,7 +810,7 @@ async function pauseWithNotification(ms, reason) {
  * Main entry point
  */
 async function main() {
-  const { keywordsFile, outputDir, dateRange, screenshotsPerTerm, region, category, onlyKeepLast, explode } = parseCommandLineArgs();
+  const { keywordsFile, outputDir, dateRange, screenshotsPerTerm, region, category, onlyKeepLast, explode, switchUaOnFailOnly } = parseCommandLineArgs();
   
   console.log('\n=== Google Trends Scraper with OCR Analysis ===\n');
   console.log(`Using keyword file: ${keywordsFile}`);
@@ -821,6 +827,12 @@ async function main() {
   
   if (onlyKeepLast && screenshotsPerTerm > 1) {
     console.log(`Mode: Only keeping last successful screenshot per term (disk space optimized)`);
+  }
+  
+  if (switchUaOnFailOnly) {
+    console.log(`UA switching mode: CONSERVATIVE (only on block/pause, not periodic rotation)`);
+  } else {
+    console.log(`UA switching mode: NORMAL (rotating every 15-30 requests)`);
   }
   
   if (region) {
@@ -874,11 +886,15 @@ async function main() {
   searchTermsList = shuffleArray(searchTermsList);
   console.log(`🔀 Randomized the order of ${searchTermsList.length} search terms.`);
   
+  // Initialize user agent handling
   let requestsSinceLastRotation = 0;
-  let requestsUntilNextRotation = randomInt(15, 30);
+  let requestsUntilNextRotation = switchUaOnFailOnly ? Infinity : randomInt(15, 30); // If conservative mode, never rotate on timer
   let currentUserAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
   await page.setUserAgent(currentUserAgent);
   console.log(`Initial user agent: ${currentUserAgent.substring(0, 60)}...`);
+  if (switchUaOnFailOnly) {
+    console.log(`Conservative UA mode active: User agent will only change when a block triggers the 10-minute pause.`);
+  }
   
   let totalScreenshots = 0;
   let totalValid = 0;
@@ -906,7 +922,8 @@ async function main() {
     for (let screenshotIdx = 1; screenshotIdx <= screenshotsPerTerm; screenshotIdx++) {
       console.log(`\n  --- Screenshot ${screenshotIdx}/${screenshotsPerTerm} ---`);
       
-      if (requestsSinceLastRotation >= requestsUntilNextRotation) {
+      // Only rotate user agent based on request count if NOT in conservative mode
+      if (!switchUaOnFailOnly && requestsSinceLastRotation >= requestsUntilNextRotation) {
         const newAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
         await page.setUserAgent(newAgent);
         console.log(`  Rotated user agent (after ${requestsSinceLastRotation} requests)`);
@@ -918,7 +935,9 @@ async function main() {
       const result = await screenshotAndAnalyze(page, term, screenshotIdx, screenshotsPerTerm, dateRange, region, category, outputDir, previousPath);
       
       totalScreenshots++;
-      requestsSinceLastRotation++;
+      if (!switchUaOnFailOnly) {
+        requestsSinceLastRotation++;
+      }
       
       if (result.deleted) {
         // Screenshot was deleted because it was invalid
@@ -956,10 +975,22 @@ async function main() {
         if (consecutiveBlocks >= 2) {
           await clearAllStorage(page);
           await pauseWithNotification(BLOCK_PAUSE_MS, 'Two consecutive CAPTCHAs detected');
-          const newAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
-          await page.setUserAgent(newAgent);
+          
+          // In conservative mode, rotate user agent on failure
+          if (switchUaOnFailOnly) {
+            const newAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+            await page.setUserAgent(newAgent);
+            console.log(`  Rotated user agent after block (conservative mode): ${newAgent.substring(0, 60)}...`);
+          } else {
+            const newAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+            await page.setUserAgent(newAgent);
+            console.log(`  Rotated user agent after block: ${newAgent.substring(0, 60)}...`);
+          }
+          
           requestsSinceLastRotation = 0;
-          requestsUntilNextRotation = randomInt(15, 30);
+          if (!switchUaOnFailOnly) {
+            requestsUntilNextRotation = randomInt(15, 30);
+          }
           await reinitializeSession(page);
           consecutiveBlocks = 0;
         }
@@ -969,10 +1000,22 @@ async function main() {
         if (consecutiveBlocks >= 2) {
           await clearAllStorage(page);
           await pauseWithNotification(BLOCK_PAUSE_MS, 'Two consecutive rate limits detected');
-          const newAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
-          await page.setUserAgent(newAgent);
+          
+          // In conservative mode, rotate user agent on failure
+          if (switchUaOnFailOnly) {
+            const newAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+            await page.setUserAgent(newAgent);
+            console.log(`  Rotated user agent after block (conservative mode): ${newAgent.substring(0, 60)}...`);
+          } else {
+            const newAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+            await page.setUserAgent(newAgent);
+            console.log(`  Rotated user agent after block: ${newAgent.substring(0, 60)}...`);
+          }
+          
           requestsSinceLastRotation = 0;
-          requestsUntilNextRotation = randomInt(15, 30);
+          if (!switchUaOnFailOnly) {
+            requestsUntilNextRotation = randomInt(15, 30);
+          }
           await reinitializeSession(page);
           consecutiveBlocks = 0;
         }
@@ -982,10 +1025,22 @@ async function main() {
         if (consecutiveBlocks >= 2) {
           await clearAllStorage(page);
           await pauseWithNotification(BLOCK_PAUSE_MS, 'Two consecutive errors detected');
-          const newAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
-          await page.setUserAgent(newAgent);
+          
+          // In conservative mode, rotate user agent on failure
+          if (switchUaOnFailOnly) {
+            const newAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+            await page.setUserAgent(newAgent);
+            console.log(`  Rotated user agent after block (conservative mode): ${newAgent.substring(0, 60)}...`);
+          } else {
+            const newAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+            await page.setUserAgent(newAgent);
+            console.log(`  Rotated user agent after block: ${newAgent.substring(0, 60)}...`);
+          }
+          
           requestsSinceLastRotation = 0;
-          requestsUntilNextRotation = randomInt(15, 30);
+          if (!switchUaOnFailOnly) {
+            requestsUntilNextRotation = randomInt(15, 30);
+          }
           await reinitializeSession(page);
           consecutiveBlocks = 0;
         }

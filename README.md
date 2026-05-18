@@ -61,20 +61,36 @@ Beyond pruning detection, this tool has been extended into a **general-purpose, 
 
 The tool implements multiple layers of evasion that make blocks extremely rare:
 
-- **Randomized User Agent Rotation**: Automatically cycles through 15-99 different user agents at random intervals (15-30 requests per agent)
+- **User Agent Management**: Two modes available (see below)
 - **Search Term Randomization**: Shuffles the order of all search terms to avoid predictable request patterns
 - **Session Freshness**: Clears all browser storage (cookies, localStorage, cache) when blocks are detected
 - **Intelligent Delays**: Configurable delays (2-5 seconds) between requests to avoid triggering rate limits
+
+#### User Agent Rotation Modes
+
+The tool offers two user agent management strategies:
+
+**Normal Mode (default):**
+- Automatically cycles through 15-99 different user agents at random intervals (15-30 requests per agent)
+- Aggressive fingerprint changing for maximum stealth
+- Best for short to medium duration collections
+
+**Conservative Mode (`--switch-ua-on-fail-only`):**
+- Uses the same user agent indefinitely during normal operation
+- Only rotates user agent when a block triggers the 10-minute pause
+- Preserves IP reputation by maintaining a consistent browser fingerprint
+- Ideal for long-running, continuous collections (e.g., cron jobs running for months)
+- Reduces risk of triggering rate limits from too-frequent user agent changes
 
 **When blocks do occur (rare due to the above measures), the tool triggers:**
 
 - **10-Minute Cooldown Pause**: Automatically pauses all activity for 10 minutes
 - **Text-to-Speech Audio Alert**: Your computer speaks "Shit, we've been blocked. Please rotate your IP address." to attract your attention
 - **Manual VPN Intervention Required**: The audio alert prompts you to manually change your VPN location to obtain a new IP address
-- **Automatic Session Reset**: After the cooldown, the tool automatically clears storage, rotates user agent, and re-initializes the session before resuming
+- **Automatic Session Reset**: After the cooldown, the tool automatically clears storage, rotates user agent (regardless of mode), and re-initializes the session before resuming
 
 **Why blocks are rare in practice:**
-- The combination of frequent user agent switching, randomized term order, and session clearing mimics organic traffic patterns
+- The combination of user agent management, randomized term order, and session clearing mimics organic traffic patterns
 - Blocks typically only occur after thousands of consecutive requests to the same Google Trends endpoint
 - When blocks do happen, the audio alert ensures you can quickly intervene by changing VPN location, minimizing data collection interruptions
 
@@ -91,6 +107,7 @@ The tool now supports **all major Google Trends URL parameters**:
 | `--output-dir` | Custom path | Specify output directory for screenshots |
 | `--only-keep-last` | Flag | Keep only the last successful screenshot per term (disk space optimization) |
 | `--explode` | Flag | Decompose keywords into all non-empty subsequences (order preserved) |
+| `--switch-ua-on-fail-only` | Flag | Only switch user agent when a block triggers the 10-minute pause |
 
 ### Keyword Decomposition Behavior
 
@@ -142,8 +159,11 @@ node index.js --region US --date "Past 90 days" --explode
 # High-resolution hourly sampling with disk space optimization
 node index.js --screenshots-per-term 30 --date "Past hour" --only-keep-last
 
-# Daily reconstruction for a specific category in Germany
-node index.js --region DE --category t --date "Past 7 days" --screenshots-per-term 7
+# Conservative user agent mode for long-running collections
+node index.js --switch-ua-on-fail-only --date "Past 90 days"
+
+# Daily reconstruction with conservative UA switching
+node index.js --region DE --category t --date "Past 7 days" --screenshots-per-term 7 --switch-ua-on-fail-only
 
 # Monthly trend analysis for Japanese entertainment queries
 node index.js --region JP --category e --date "Past 12 months" --screenshots-per-term 12
@@ -151,8 +171,8 @@ node index.js --region JP --category e --date "Past 12 months" --screenshots-per
 # Custom output directory for organized storage
 node index.js --output-dir ./data/us_2024 --region US --date "Past 90 days"
 
-# Complete forensic configuration with decomposition
-node index.js --keyword-file ./forensic-terms.json --output-dir ./forensic_data --region US --category b --date "Past 5 years" --screenshots-per-term 60 --only-keep-last --explode
+# Complete forensic configuration with decomposition and conservative UA
+node index.js --keyword-file ./forensic-terms.json --output-dir ./forensic_data --region US --category b --date "Past 5 years" --screenshots-per-term 60 --only-keep-last --explode --switch-ua-on-fail-only
 
 # Custom date range for specific event analysis
 node index.js --region GB --date "2024-01-01 2024-12-31" --screenshots-per-term 24 --output-dir ./uk_2024
@@ -168,20 +188,20 @@ crontab -e
 
 # Example cron jobs for continuous Google Trends recording:
 
-# Run every hour to capture hourly trends (keeping only the latest)
-0 * * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./monitor.json --date "Past hour" --screenshots-per-term 1 --only-keep-last --output-dir ./hourly_data >> /var/log/gtrends.log 2>&1
+# Run every hour with conservative UA mode (recommended for long-running jobs)
+0 * * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./monitor.json --date "Past hour" --screenshots-per-term 1 --only-keep-last --switch-ua-on-fail-only --output-dir ./hourly_data >> /var/log/gtrends.log 2>&1
 
 # Run daily at midnight with decomposition for comprehensive coverage
-0 0 * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./daily-terms.json --region GB --date "Past day" --explode --output-dir ./daily_data >> /var/log/gtrends-daily.log 2>&1
+0 0 * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./daily-terms.json --region GB --date "Past day" --explode --switch-ua-on-fail-only --output-dir ./daily_data >> /var/log/gtrends-daily.log 2>&1
 
 # Run weekly on Sunday at 2 AM to capture weekly data
 0 2 * * 0 cd /path/to/gtrends-mayday && node index.js --keyword-file ./weekly-terms.json --region DE --category t --date "Past 7 days" --screenshots-per-term 1 --output-dir ./weekly_data >> /var/log/gtrends-weekly.log 2>&1
 
 # Run monthly on the 1st at 3 AM with decomposition
-0 3 1 * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./monthly-terms.json --region JP --category e --date "Past 30 days" --explode --output-dir ./monthly_data >> /var/log/gtrends-monthly.log 2>&1
+0 3 1 * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./monthly-terms.json --region JP --category e --date "Past 30 days" --explode --switch-ua-on-fail-only --output-dir ./monthly_data >> /var/log/gtrends-monthly.log 2>&1
 
 # High-frequency monitoring (every 6 hours) with disk space optimization
-0 */6 * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./trending.json --region US --date "Past 4 hours" --screenshots-per-term 1 --only-keep-last --output-dir ./high_freq_data >> /var/log/gtrends-6hour.log 2>&1
+0 */6 * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./trending.json --region US --date "Past 4 hours" --screenshots-per-term 1 --only-keep-last --switch-ua-on-fail-only --output-dir ./high_freq_data >> /var/log/gtrends-6hour.log 2>&1
 ```
 
 **With cron automation, you can:**
@@ -192,6 +212,7 @@ crontab -e
 - Organize data by date/region/category using custom output directories
 - Minimize disk usage with `--only-keep-last` for high-frequency sampling
 - Automatically filter out invalid responses with built-in screenshot validation
+- Maintain consistent browser fingerprinting with conservative UA mode
 
 ### Available Command Line Options
 
@@ -228,28 +249,33 @@ Options:
                                   screenshot for each term and delete previous ones
   --explode                       Decompose keywords into all non-empty subsequences (order preserved)
                                   When not specified, only the exact keyword strings are used
+  --switch-ua-on-fail-only        Only switch user agent when a block triggers the 10-minute pause.
+                                  Normal mode rotates user agent every 15-30 requests.
   --help, -h                      Show this help message
 
 Examples:
-  # Worldwide forensic pruning detection (exact keywords)
+  # Worldwide forensic pruning detection (exact keywords, normal UA rotation)
   node index.js --keyword-file ./keywords.json --date "Past 5 years"
   
   # Same but with decomposition (generates all subsequences)
   node index.js --keyword-file ./keywords.json --date "Past 5 years" --explode
   
+  # Conservative UA mode for long-running collections
+  node index.js --keyword-file ./keywords.json --date "Past 5 years" --switch-ua-on-fail-only
+  
   # US-specific with custom output directory
   node index.js --keyword-file ./keywords.json --region US --date "Past 5 years" --output-dir ./us_forensic
   
-  # High-frequency sampling with disk space optimization
-  node index.js --keyword-file ./monitor-terms.json --date "Past day" --screenshots-per-term 24 --only-keep-last
+  # High-frequency sampling with disk space optimization and conservative UA
+  node index.js --keyword-file ./monitor-terms.json --date "Past day" --screenshots-per-term 24 --only-keep-last --switch-ua-on-fail-only
   
   # Cross-regional comparison with organized output
   node index.js --region GB --category t --date "Past 90 days" --output-dir ./uk_tech
   node index.js --region DE --category t --date "Past 90 days" --output-dir ./de_tech
   node index.js --region JP --category t --date "Past 90 days" --output-dir ./jp_tech
   
-  # Event-specific timeline reconstruction with auto-cleanup and decomposition
-  node index.js --region US --date "2026-04-01 2026-05-31" --screenshots-per-term 30 --only-keep-last --explode --output-dir ./event_analysis
+  # Event-specific timeline reconstruction with auto-cleanup, decomposition, and conservative UA
+  node index.js --region US --date "2026-04-01 2026-05-31" --screenshots-per-term 30 --only-keep-last --explode --switch-ua-on-fail-only --output-dir ./event_analysis
 ```
 
 ### Country Codes (247 Supported)
@@ -314,7 +340,7 @@ npm install puppeteer-extra puppeteer-extra-plugin-stealth
 
 ### General Workflow Examples
 
-#### Example 1: Basic Forensic Collection (Worldwide, Exact Keywords)
+#### Example 1: Basic Forensic Collection (Worldwide, Exact Keywords, Normal UA)
 ```
 maskirovka@3301 % node index.js --keyword-file ./keywords.json --date "Past 90 days"
 
@@ -326,6 +352,7 @@ Using date range: today 3-m
 Screenshots per term: 1
 Invalid screenshot handling: Deleting all non-chart screenshots (Oops, errors, no_data, etc.)
 Keyword decomposition: DISABLED (using exact keywords only)
+UA switching mode: NORMAL (rotating every 15-30 requests)
 Region: Worldwide (no geo-restriction)
 Category: all - All categories
 ✓ Tesseract OCR found
@@ -362,9 +389,47 @@ Total screenshots taken: 1082
 ==============================
 ```
 
-#### Example 2: High-Resolution Sampling with Disk Optimization and Decomposition
+#### Example 2: Long-Running Collection with Conservative UA Mode
 ```
-maskirovka@3301 % node index.js --keyword-file "./monitor-terms.json" --date "Past day" --screenshots-per-term 24 --only-keep-last --explode
+maskirovka@3301 % node index.js --keyword-file "./monitor-terms.json" --date "Past day" --screenshots-per-term 1 --switch-ua-on-fail-only
+
+=== Google Trends Scraper with OCR Analysis ===
+
+Using date range: now 1-d
+Screenshots per term: 1
+Invalid screenshot handling: Deleting all non-chart screenshots (Oops, errors, no_data, etc.)
+Keyword decomposition: DISABLED (using exact keywords only)
+UA switching mode: CONSERVATIVE (only on block/pause, not periodic rotation)
+Conservative UA mode active: User agent will only change when a block triggers the 10-minute pause.
+Region: Worldwide (no geo-restriction)
+Category: all - All categories
+
+Initial user agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)...
+Conservative UA mode active: User agent will only change when a block triggers the 10-minute pause.
+
+[1/50] Processing term: "AI regulation news"
+  --- Screenshot 1/1 ---
+  Pattern detected: success (keeping screenshot)
+  ✓ Valid chart screenshot kept!
+
+... (continues for thousands of requests with same user agent)
+
+========== SUMMARY ==========
+Total unique search terms generated: 50
+Total search terms processed: 50
+Total screenshots taken: 50
+  - Valid screenshots kept (with chart): 48
+  - Invalid screenshots deleted: 2
+    * No data/Oops errors: 2
+    * Server errors: 0
+    * Rate limited: 0
+    * CAPTCHA: 0
+==============================
+```
+
+#### Example 3: High-Resolution Sampling with Disk Optimization and Decomposition
+```
+maskirovka@3301 % node index.js --keyword-file "./monitor-terms.json" --date "Past day" --screenshots-per-term 24 --only-keep-last --explode --switch-ua-on-fail-only
 
 === Google Trends Scraper with OCR Analysis ===
 
@@ -373,6 +438,7 @@ Screenshots per term: 24
 Invalid screenshot handling: Deleting all non-chart screenshots (Oops, errors, no_data, etc.)
 Keyword decomposition: ENABLED (generating all subsequences)
 Mode: Only keeping last successful screenshot per term (disk space optimized)
+UA switching mode: CONSERVATIVE (only on block/pause, not periodic rotation)
 
 === Generating search terms ===
   Decomposing keywords into all subsequences...
@@ -415,11 +481,11 @@ Total screenshots taken: 3744
 ==============================
 ```
 
-#### Example 3: Organized Multi-Region Collection with Exact Keywords
+#### Example 4: Organized Multi-Region Collection with Exact Keywords
 ```
-maskirovka@3301 % node index.js --region US --date "Past 90 days" --output-dir ./data/us
-maskirovka@3301 % node index.js --region GB --date "Past 90 days" --output-dir ./data/uk
-maskirovka@3301 % node index.js --region DE --date "Past 90 days" --output-dir ./data/germany
+maskirovka@3301 % node index.js --region US --date "Past 90 days" --output-dir ./data/us --switch-ua-on-fail-only
+maskirovka@3301 % node index.js --region GB --date "Past 90 days" --output-dir ./data/uk --switch-ua-on-fail-only
+maskirovka@3301 % node index.js --region DE --date "Past 90 days" --output-dir ./data/germany --switch-ua-on-fail-only
 
 # Results in organized directory structure:
 # ./data/us/[only valid chart screenshots]
@@ -441,7 +507,9 @@ This tool implements a sophisticated scraping pipeline optimized for both prunin
 #### 2. Stealth Browser Automation
 
 - **Puppeteer-Extra with Stealth Plugin**: Evades headless browser detection using multiple evasion techniques
-- **User Agent Rotation**: Automatically rotates through 15-99 different user agents with randomized intervals (15-30 requests per agent)
+- **User Agent Management**: Two modes available
+  - **Normal**: Rotates every 15-30 requests for aggressive fingerprint changes
+  - **Conservative (`--switch-ua-on-fail-only`)**: Maintains consistent fingerprint, only rotates on block
 - **Session Freshness**: Clears all browser storage (cookies, localStorage, cache) before collection and during 10-minute cooldown periods
 - **Intelligent Throttling**: Configurable delays (2-5 seconds) between requests to avoid triggering rate limits
 
@@ -472,14 +540,14 @@ For general-purpose data collection, the `--screenshots-per-term` parameter enab
 **Example Strategies:**
 
 ```bash
-# Full history (keeps all valid screenshots)
+# Full history (keeps all valid screenshots, normal UA rotation)
 node index.js --date "Past 7 days" --screenshots-per-term 168
 
-# Latest state only (minimal disk usage)
-node index.js --date "Past 7 days" --screenshots-per-term 168 --only-keep-last
+# Latest state only with conservative UA (minimal disk usage, stable fingerprint)
+node index.js --date "Past 7 days" --screenshots-per-term 168 --only-keep-last --switch-ua-on-fail-only
 
-# Daily snapshots with decomposition
-node index.js --date "Past 90 days" --screenshots-per-term 90 --explode
+# Daily snapshots with decomposition and conservative UA
+node index.js --date "Past 90 days" --screenshots-per-term 90 --explode --switch-ua-on-fail-only
 
 # Daily snapshots, latest only, with decomposition
 node index.js --date "Past 90 days" --screenshots-per-term 90 --only-keep-last --explode
@@ -487,14 +555,14 @@ node index.js --date "Past 90 days" --screenshots-per-term 90 --only-keep-last -
 
 #### 5. Adaptive Block Handling with Audio Alert System
 
-Due to the tool's robust anti-detection measures (randomized user agents, shuffled search terms, session clearing), blocks are rare in practice. However, when they do occur after thousands of consecutive requests, the tool implements:
+Due to the tool's robust anti-detection measures (user agent management, shuffled search terms, session clearing), blocks are rare in practice. However, when they do occur after thousands of consecutive requests, the tool implements:
 
 - **Consecutive Block Detection**: Tracks sequential failures to distinguish transient issues from sustained platform blocks
 - **10-Minute Cooldown with TTS Notification**: Upon 2 consecutive blocks, triggers:
   - **Audio Alert**: Your computer speaks "Shit, we've been blocked. Please rotate your IP address." to attract your attention
   - **Manual Intervention Required**: The audio alert prompts you to manually change your VPN location to obtain a new IP address
   - Complete storage clearing (cookies, localStorage, cache)
-  - User agent rotation
+  - User agent rotation (regardless of mode - always rotates on block)
   - Session re-initialization via clean trends.google.com visit
 - **Automatic Recovery**: After the 10-minute cooldown, the tool automatically resumes collection from the next keyword, ensuring continuous data flow
 

@@ -36,6 +36,7 @@ Beyond pruning detection, this tool has been extended into a **general-purpose, 
 - **Automated Recurring Collection**: Set and forget data collection that builds comprehensive historical archives without manual intervention
 - **Retrospective Reconstruction**: Build complete, high-resolution trend lines over months or years by stitching together thousands of screenshots taken at scheduled intervals
 - **Disk Space Optimization**: Use `--only-keep-last` to retain only the most recent screenshot per term during high-frequency sampling, dramatically reducing storage requirements
+- **Automatic Invalid Screenshot Deletion**: Screenshots containing "Oops" errors, "doesn't have enough data" messages, server errors, or any non-chart content are automatically deleted, ensuring only valid chart data is retained
 
 ### Comparative Analysis Capabilities
 
@@ -89,6 +90,37 @@ The tool now supports **all major Google Trends URL parameters**:
 | `--screenshots-per-term` | 1-∞ | High-frequency sampling (e.g., 30 screenshots hourly) |
 | `--output-dir` | Custom path | Specify output directory for screenshots |
 | `--only-keep-last` | Flag | Keep only the last successful screenshot per term (disk space optimization) |
+| `--explode` | Flag | Decompose keywords into all non-empty subsequences (order preserved) |
+
+### Keyword Decomposition Behavior
+
+The tool offers two modes for processing keywords:
+
+**Without `--explode` (default):**
+- Uses only the exact keyword strings as provided in the keywords file
+- Ideal for targeted searches where you only want specific phrases
+- Generates fewer total search terms
+
+**With `--explode`:**
+- Decomposes each compound keyword into all non-empty subsequences while preserving word order
+- Example: `"climate change policy"` → `"climate"`, `"change"`, `"policy"`, `"climate change"`, `"climate policy"`, `"change policy"`, `"climate change policy"`
+- Useful for semantic gradient analysis and testing compositional relationships
+- Generates significantly more search terms for comprehensive coverage
+
+### Automatic Invalid Screenshot Deletion
+
+The tool automatically analyzes every screenshot using OCR and **only keeps screenshots that contain valid chart data**:
+
+| Screenshot Type | Action | Reason |
+|----------------|--------|--------|
+| `success` (chart data) | **KEPT** | Valid chart with "interest over time" or trend patterns |
+| `no_data` ("Oops", "doesn't have enough data") | **DELETED** | No chart data available for this term |
+| `error` (HTTP 4xx/5xx) | **DELETED** | Server error or unexpected content |
+| `rate_limited` (429) | **DELETED** | Rate limiting response (pause and retry) |
+| `captcha` | **DELETED** | Anti-bot challenge (pause and rotate IP) |
+| `unknown` | **DELETED** | Unrecognized content, treated as invalid |
+
+This ensures your output directory contains **only valid chart screenshots** ready for OCR processing with GTRENDS-OCR.
 
 ### Usage
 
@@ -96,16 +128,16 @@ The tool now supports **all major Google Trends URL parameters**:
 # Install dependencies
 npm install
 
-# Basic usage with default settings (worldwide data)
+# Basic usage with default settings (worldwide data, exact keywords only)
 npm start
 
 # General-purpose data collection examples
 
-# Capture worldwide data for past 90 days
+# Capture worldwide data for past 90 days (exact keywords only)
 node index.js --date "Past 90 days"
 
-# Capture US data for past 90 days
-node index.js --region US --date "Past 90 days"
+# Capture US data with keyword decomposition (generates all subsequences)
+node index.js --region US --date "Past 90 days" --explode
 
 # High-resolution hourly sampling with disk space optimization
 node index.js --screenshots-per-term 30 --date "Past hour" --only-keep-last
@@ -119,8 +151,8 @@ node index.js --region JP --category e --date "Past 12 months" --screenshots-per
 # Custom output directory for organized storage
 node index.js --output-dir ./data/us_2024 --region US --date "Past 90 days"
 
-# Complete forensic configuration (all parameters)
-node index.js --keyword-file ./forensic-terms.json --output-dir ./forensic_data --region US --category b --date "Past 5 years" --screenshots-per-term 60 --only-keep-last
+# Complete forensic configuration with decomposition
+node index.js --keyword-file ./forensic-terms.json --output-dir ./forensic_data --region US --category b --date "Past 5 years" --screenshots-per-term 60 --only-keep-last --explode
 
 # Custom date range for specific event analysis
 node index.js --region GB --date "2024-01-01 2024-12-31" --screenshots-per-term 24 --output-dir ./uk_2024
@@ -139,14 +171,14 @@ crontab -e
 # Run every hour to capture hourly trends (keeping only the latest)
 0 * * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./monitor.json --date "Past hour" --screenshots-per-term 1 --only-keep-last --output-dir ./hourly_data >> /var/log/gtrends.log 2>&1
 
-# Run daily at midnight to capture daily data
-0 0 * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./daily-terms.json --region GB --date "Past day" --screenshots-per-term 1 --output-dir ./daily_data >> /var/log/gtrends-daily.log 2>&1
+# Run daily at midnight with decomposition for comprehensive coverage
+0 0 * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./daily-terms.json --region GB --date "Past day" --explode --output-dir ./daily_data >> /var/log/gtrends-daily.log 2>&1
 
 # Run weekly on Sunday at 2 AM to capture weekly data
 0 2 * * 0 cd /path/to/gtrends-mayday && node index.js --keyword-file ./weekly-terms.json --region DE --category t --date "Past 7 days" --screenshots-per-term 1 --output-dir ./weekly_data >> /var/log/gtrends-weekly.log 2>&1
 
-# Run monthly on the 1st at 3 AM to capture monthly data
-0 3 1 * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./monthly-terms.json --region JP --category e --date "Past 30 days" --screenshots-per-term 1 --output-dir ./monthly_data >> /var/log/gtrends-monthly.log 2>&1
+# Run monthly on the 1st at 3 AM with decomposition
+0 3 1 * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./monthly-terms.json --region JP --category e --date "Past 30 days" --explode --output-dir ./monthly_data >> /var/log/gtrends-monthly.log 2>&1
 
 # High-frequency monitoring (every 6 hours) with disk space optimization
 0 */6 * * * cd /path/to/gtrends-mayday && node index.js --keyword-file ./trending.json --region US --date "Past 4 hours" --screenshots-per-term 1 --only-keep-last --output-dir ./high_freq_data >> /var/log/gtrends-6hour.log 2>&1
@@ -159,6 +191,7 @@ crontab -e
 - Create alerting systems when anomalies are detected in recurring collections
 - Organize data by date/region/category using custom output directories
 - Minimize disk usage with `--only-keep-last` for high-frequency sampling
+- Automatically filter out invalid responses with built-in screenshot validation
 
 ### Available Command Line Options
 
@@ -192,12 +225,17 @@ Options:
                                     - s = Sports
                                     - h = Top stories
   --only-keep-last                When using --screenshots-per-term > 1, only keep the last successful
-                                  (200) screenshot for each term and delete previous ones
+                                  screenshot for each term and delete previous ones
+  --explode                       Decompose keywords into all non-empty subsequences (order preserved)
+                                  When not specified, only the exact keyword strings are used
   --help, -h                      Show this help message
 
 Examples:
-  # Worldwide forensic pruning detection
+  # Worldwide forensic pruning detection (exact keywords)
   node index.js --keyword-file ./keywords.json --date "Past 5 years"
+  
+  # Same but with decomposition (generates all subsequences)
+  node index.js --keyword-file ./keywords.json --date "Past 5 years" --explode
   
   # US-specific with custom output directory
   node index.js --keyword-file ./keywords.json --region US --date "Past 5 years" --output-dir ./us_forensic
@@ -210,8 +248,8 @@ Examples:
   node index.js --region DE --category t --date "Past 90 days" --output-dir ./de_tech
   node index.js --region JP --category t --date "Past 90 days" --output-dir ./jp_tech
   
-  # Event-specific timeline reconstruction with auto-cleanup
-  node index.js --region US --date "2026-04-01 2026-05-31" --screenshots-per-term 30 --only-keep-last --output-dir ./event_analysis
+  # Event-specific timeline reconstruction with auto-cleanup and decomposition
+  node index.js --region US --date "2026-04-01 2026-05-31" --screenshots-per-term 30 --only-keep-last --explode --output-dir ./event_analysis
 ```
 
 ### Country Codes (247 Supported)
@@ -276,7 +314,7 @@ npm install puppeteer-extra puppeteer-extra-plugin-stealth
 
 ### General Workflow Examples
 
-#### Example 1: Basic Forensic Collection (Worldwide)
+#### Example 1: Basic Forensic Collection (Worldwide, Exact Keywords)
 ```
 maskirovka@3301 % node index.js --keyword-file ./keywords.json --date "Past 90 days"
 
@@ -286,6 +324,8 @@ Using keyword file: ./keywords.json
 Using output directory: ./output
 Using date range: today 3-m
 Screenshots per term: 1
+Invalid screenshot handling: Deleting all non-chart screenshots (Oops, errors, no_data, etc.)
+Keyword decomposition: DISABLED (using exact keywords only)
 Region: Worldwide (no geo-restriction)
 Category: all - All categories
 ✓ Tesseract OCR found
@@ -293,84 +333,110 @@ Loaded 1082 compound keywords from ./keywords.json
 Loaded 99 user agents from ./user-agents.json
 Output directory ready: ./output
 
-=== Generating all search terms from compound keywords ===
-  Generated 6600 total search terms from 1082 compound keywords
+=== Generating search terms ===
+  Using exact keywords only (no decomposition)...
+  Generated 1082 total search terms from 1082 exact keyword(s)
 
-📊 Generated 6600 unique search terms total.
-🔀 Randomized the order of 6600 search terms.
+📊 1082 unique search terms total.
+🔀 Randomized the order of 1082 search terms.
 
-[1/6600] Processing term: "directed energy weapon"
-  Screenshot 1/1 for "directed energy weapon"
+[1/1082] Processing term: "directed energy weapon"
+  --- Screenshot 1/1 ---
 Navigating to: https://trends.google.com/trends/explore?date=today%203-m&q=directed%20energy%20weapon&hl=en-US
-Screenshot saved: output/directed_energy_weapon_05-17-2026_14-30-22_pending_200.jpg
+Screenshot saved: output/directed_energy_weapon_pending_200.jpg
   Analyzing screenshot with OCR...
-  Pattern detected: success (chart data found)
+  Pattern detected: success (keeping screenshot)
   Renamed to: directed_energy_weapon_05-17-2026_14-30-22_success_200.jpg
-  ✓ Success! Chart loaded.
+  ✓ Valid chart screenshot kept!
 
 ========== SUMMARY ==========
-Total screenshots taken: 6600
-  - Success: 5842
-  - No data: 702
-  - Rate limited: 46
-  - CAPTCHA: 8
-  - Errors: 2
+Total unique search terms generated: 1082
+Total search terms processed: 1082
+Total screenshots taken: 1082
+  - Valid screenshots kept (with chart): 982
+  - Invalid screenshots deleted: 100
+    * No data/Oops errors: 85
+    * Server errors: 10
+    * Rate limited: 3
+    * CAPTCHA: 2
 ==============================
 ```
 
-#### Example 2: High-Resolution Sampling with Disk Optimization
+#### Example 2: High-Resolution Sampling with Disk Optimization and Decomposition
 ```
-maskirovka@3301 % node index.js --keyword-file "./monitor-terms.json" --date "Past day" --screenshots-per-term 24 --only-keep-last
+maskirovka@3301 % node index.js --keyword-file "./monitor-terms.json" --date "Past day" --screenshots-per-term 24 --only-keep-last --explode
 
 === Google Trends Scraper with OCR Analysis ===
 
 Using date range: now 1-d
 Screenshots per term: 24
+Invalid screenshot handling: Deleting all non-chart screenshots (Oops, errors, no_data, etc.)
+Keyword decomposition: ENABLED (generating all subsequences)
 Mode: Only keeping last successful screenshot per term (disk space optimized)
 
-[1/50] Processing term: "AI regulation news"
+=== Generating search terms ===
+  Decomposing keywords into all subsequences...
+  Generated 156 total search terms from 6 compound keyword(s)
+
+[1/156] Processing term: "AI regulation news"
   Will take 24 screenshot(s) for this term
   
-  --- Screenshot 1/24 for "AI regulation news" ---
-  ✓ Success! Chart loaded. (Kept)
+  --- Screenshot 1/24 ---
+  Pattern detected: success (keeping screenshot)
+  ✓ Valid chart screenshot kept!
   
-  --- Screenshot 2/24 for "AI regulation news" ---
-  ✓ Success! Chart loaded.
-  Deleted previous screenshot: ai_regulation_news_1_US_catt_05-17-2026_00-00-00_success_200.jpg
+  --- Screenshot 2/24 ---
+  Pattern detected: success (keeping screenshot)
+  Deleted previous screenshot: AI_regulation_news_1_05-17-2026_00-00-00_success_200.jpg
+  ✓ Valid chart screenshot kept!
   
-  --- Screenshot 3/24 for "AI regulation news" ---
-  ⚠ Rate limited detected! (Preserving previous success)
+  --- Screenshot 3/24 ---
+  Pattern detected: no_data (will be deleted)
+  Deleted invalid screenshot (no_data)
+  🗑️ Screenshot deleted (no_data - no chart data)
   
-  --- Screenshot 4/24 for "AI regulation news" ---
-  ✓ Success! Chart loaded.
-  Deleted previous screenshot: ai_regulation_news_2_US_catt_05-17-2026_01-00-01_success_200.jpg
-  
-  ... (continuing for 24 hours, keeping only the most recent success)
+  --- Screenshot 4/24 ---
+  Pattern detected: success (keeping screenshot)
+  Deleted previous screenshot: AI_regulation_news_2_05-17-2026_01-00-01_success_200.jpg
+  ✓ Valid chart screenshot kept!
 
-📊 After 24 screenshots, only the final successful screenshot remains
+========== SUMMARY ==========
+Total unique search terms generated: 156
+Total search terms processed: 156
+Total screenshots taken: 3744
+  - Valid screenshots kept (with chart): 2890
+  - Invalid screenshots deleted: 854
+    * No data/Oops errors: 720
+    * Server errors: 89
+    * Rate limited: 32
+    * CAPTCHA: 13
+  - Previous screenshots deleted (only-keep-last): 2734
+  - Final screenshots remaining: 156
+==============================
 ```
 
-#### Example 3: Organized Multi-Region Collection
+#### Example 3: Organized Multi-Region Collection with Exact Keywords
 ```
 maskirovka@3301 % node index.js --region US --date "Past 90 days" --output-dir ./data/us
 maskirovka@3301 % node index.js --region GB --date "Past 90 days" --output-dir ./data/uk
 maskirovka@3301 % node index.js --region DE --date "Past 90 days" --output-dir ./data/germany
 
 # Results in organized directory structure:
-# ./data/us/[screenshots]
-# ./data/uk/[screenshots]
-# ./data/germany/[screenshots]
+# ./data/us/[only valid chart screenshots]
+# ./data/uk/[only valid chart screenshots]
+# ./data/germany/[only valid chart screenshots]
 ```
 
 ### How It Works
 
 This tool implements a sophisticated scraping pipeline optimized for both pruning research and general-purpose data collection:
 
-#### 1. Semantic Gradient Generation
+#### 1. Keyword Processing & Semantic Gradient Generation
 
-- **Triplet Decomposition**: Each compound keyword is decomposed into all ordered subsequences (single words, bigrams, original phrase) to capture compositional dynamics
+- **Exact Mode (default)**: Uses only the exact keyword strings as provided in the keywords file
+- **Explode Mode (`--explode`)**: Decomposes each compound keyword into all ordered subsequences (single words, bigrams, original phrase) to capture compositional dynamics
 - **Deduplication & Randomization**: Unique search terms are shuffled to avoid predictable request patterns that could trigger rate limiting
-- **Comprehensive Coverage**: Generates 5,000-7,000 unique search terms from 1,200+ triplets, providing statistical power for hierarchical Bayesian updating
+- **Comprehensive Coverage**: Generates 5,000-7,000 unique search terms from 1,200+ triplets when using explode mode
 
 #### 2. Stealth Browser Automation
 
@@ -379,17 +445,19 @@ This tool implements a sophisticated scraping pipeline optimized for both prunin
 - **Session Freshness**: Clears all browser storage (cookies, localStorage, cache) before collection and during 10-minute cooldown periods
 - **Intelligent Throttling**: Configurable delays (2-5 seconds) between requests to avoid triggering rate limits
 
-#### 3. Forensic Screenshot Classification
+#### 3. Forensic Screenshot Validation & Auto-Deletion
 
-Using Tesseract OCR, screenshots are classified into categories essential for analysis:
+Using Tesseract OCR, every screenshot is analyzed and **automatically deleted if invalid**:
 
-| Category | Detection Pattern | Research Implication |
-|----------|-----------------|---------------------|
-| `success` | Chart data with "interest over time" | Successful retrieval for weight estimation |
-| `no_data` | "doesn't have enough data" or "Oops" | Valid response—term lacks search volume |
-| `captcha` | "suspicious traffic", "verify you're human" | Platform anti-bot trigger (rate limiting) |
-| `rate_limited` | "429", "rate limit", "too many requests" | Hard rate limit (pauses collection) |
-| `error` | HTTP 4xx/5xx or unexpected content | Platform errors requiring investigation |
+| Category | Detection Pattern | Action |
+|----------|-----------------|--------|
+| `success` | Chart data with "interest over time" or "trend" | **KEPT** (renamed with `_success_`) |
+| `no_data` | "doesn't have enough data", "Oops", "try a more general term" | **DELETED** |
+| `captcha` | "suspicious traffic", "verify you're human" | **DELETED** |
+| `rate_limited` | "429", "rate limit", "too many requests" | **DELETED** |
+| `error` | HTTP 4xx/5xx or unexpected content | **DELETED** |
+
+This ensures your output directory contains **only valid chart screenshots** ready for post-processing.
 
 #### 4. High-Resolution Temporal Sampling Strategy
 
@@ -404,17 +472,17 @@ For general-purpose data collection, the `--screenshots-per-term` parameter enab
 **Example Strategies:**
 
 ```bash
-# Full history (keeps all screenshots)
+# Full history (keeps all valid screenshots)
 node index.js --date "Past 7 days" --screenshots-per-term 168
 
 # Latest state only (minimal disk usage)
 node index.js --date "Past 7 days" --screenshots-per-term 168 --only-keep-last
 
-# Daily snapshots with history
-node index.js --date "Past 90 days" --screenshots-per-term 90
+# Daily snapshots with decomposition
+node index.js --date "Past 90 days" --screenshots-per-term 90 --explode
 
-# Daily snapshots, latest only
-node index.js --date "Past 90 days" --screenshots-per-term 90 --only-keep-last
+# Daily snapshots, latest only, with decomposition
+node index.js --date "Past 90 days" --screenshots-per-term 90 --only-keep-last --explode
 ```
 
 #### 5. Adaptive Block Handling with Audio Alert System
@@ -429,12 +497,6 @@ Due to the tool's robust anti-detection measures (randomized user agents, shuffl
   - User agent rotation
   - Session re-initialization via clean trends.google.com visit
 - **Automatic Recovery**: After the 10-minute cooldown, the tool automatically resumes collection from the next keyword, ensuring continuous data flow
-
-**Why blocks are extremely rare:**
-- The combination of frequent user agent switching (every 15-30 requests) mimics organic browser behavior
-- Randomized order of search terms prevents pattern detection
-- Session clearing and re-initialization before each collection run maintains freshness
-- In practice, the tool can process thousands of search terms without triggering blocks
 
 #### 6. Chain-of-Custody Documentation
 
@@ -476,19 +538,20 @@ Beyond pruning detection, the tool supports:
 4. **Category-Specific Research**: Focused analysis on Business, Health, Sci/Tech verticals
 5. **Algorithm Auditing**: Detect and document platform-side data modifications
 6. **Continuous Monitoring**: Cron-driven automated collection with disk-optimized storage
+7. **Semantic Gradient Analysis**: Using `--explode` to capture compositional relationships between terms
 
 ### Output Structure
 
 ```
 output/ (or custom directory via --output-dir)
-├── [search_term]_[#]_[region]_[catX]_[timestamp]_[classification]_[status].jpg
-├── ai_regulation_1_US_catt_05-17-2026_00-00-00_success_200.jpg   (Hour 0)
-├── ai_regulation_2_US_catt_05-17-2026_01-00-01_success_200.jpg   (Hour 1)
-├── ai_regulation_3_US_catt_05-17-2026_02-00-02_success_200.jpg   (Hour 2)
-├── ... (continuing for all screenshots when --only-keep-last is not used)
-└── [additional_terms]_[timestamp]_[classification]_[status].jpg
+├── [search_term]_[#]_[region]_[catX]_[timestamp]_success_[status].jpg  (only valid chart screenshots)
+├── ai_regulation_1_US_catt_05-17-2026_00-00-00_success_200.jpg   (Hour 0 - kept)
+├── ai_regulation_2_US_catt_05-17-2026_01-00-01_success_200.jpg   (Hour 1 - kept)
+├── ... (only successful chart screenshots survive, errors are auto-deleted)
+└── [additional_terms]_[timestamp]_success_[status].jpg
 
-# With --only-keep-last enabled, only the most recent screenshot per term remains
+# Invalid screenshots (Oops, errors, no_data, CAPTCHA, rate limits) are automatically deleted
+# With --only-keep-last enabled, only the most recent success per term remains
 ```
 
 ### Post-Processing with GTRENDS-OCR
@@ -496,7 +559,7 @@ output/ (or custom directory via --output-dir)
 After collection, use [GTRENDS-OCR](https://github.com/maskirovka3301-oss/gtrends-ocr) to extract time-series data:
 
 ```bash
-# Organize and extract chart data from screenshots
+# Organize and extract chart data from screenshots (only valid ones remain)
 python gtrends-ocr.py --output_dir ./extracted --workers 1 ./output
 
 # Compile all extracted data into hierarchical JSON
@@ -519,7 +582,7 @@ cat trends_data.json | jq '.["ai regulation"]["US"]["2026-05-17"]'
 
 - Node.js 18+
 - Tesseract OCR 4.0+
-- 4GB free disk space (for screenshots, scales with `--screenshots-per-term`, reduced by `--only-keep-last`)
+- 4GB free disk space (for screenshots, scales with `--screenshots-per-term`, reduced by `--only-keep-last` and auto-deletion)
 - 8GB RAM minimum (16GB recommended for parallel processing)
 - Internet connection for Google Trends access
 
@@ -531,7 +594,7 @@ gtrends-mayday/
 ├── package.json            # Node.js dependencies
 ├── keywords.json           # Term triplets (customizable)
 ├── user-agents.json        # Browser user agent list
-├── output/                 # Default screenshot output directory
+├── output/                 # Default screenshot output directory (only valid charts)
 ├── literature/             # Accompanying literature
 └── .gitignore              # Git ignore rules
 ```
